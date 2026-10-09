@@ -52,6 +52,26 @@ describe('compute', () => {
     expect(resizeVorm(item, 2).sides.length).toBe(3);
   });
 
+  it('mansardekap: incomplete messages, result and older items without lower fields', () => {
+    const base = { ...(createItem('dak') as DakItem), roofType: 'mansardekap' as const, span: '8' };
+    expect(computeDak(base)).toEqual({ status: 'incomplete', message: 'Vul voor het onderdak nog 2 waarden in.' });
+    expect(computeDak({ ...base, lowerRun: '1', lowerRise: '2,5' })).toEqual({
+      status: 'incomplete',
+      message: 'Vul voor het bovendak de hoogte, helling of lengte in.',
+    });
+    const ok = computeDak({ ...base, lowerRun: '1', lowerRise: '2,5', rise: '1,5', length: '10' });
+    expect(ok.status).toBe('ok');
+    if (ok.status === 'ok') {
+      expect(ok.value.roof.rise).toBeCloseTo(4, 9);
+      const perSide = (Math.hypot(1, 2.5) + Math.hypot(3, 1.5)) * 10;
+      expect(ok.value.surfaceLeft! + ok.value.surfaceRight!).toBeCloseTo(2 * perSide, 9);
+    }
+    const legacy = { ...base } as Partial<DakItem>;
+    delete legacy.lowerRun;
+    delete legacy.lowerRise;
+    expect(computeDak(legacy as DakItem).status).toBe('incomplete');
+  });
+
   it('dak with roof length gives surfaces', () => {
     const item = { ...(createItem('dak') as DakItem), span: '8', rise: '3', length: '10' };
     const r = computeDak(item);

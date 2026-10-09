@@ -359,10 +359,10 @@ export function polygonFromAngles(sides: (number | null)[], angles: number[]): T
 // Roofs and trusses
 // ---------------------------------------------------------------------------
 
-export type RoofType = 'zadeldak' | 'lessenaarsdak';
+export type RoofType = 'zadeldak' | 'lessenaarsdak' | 'mansardekap';
 
 export interface RoofInput {
-  type: RoofType;
+  type: 'zadeldak' | 'lessenaarsdak';
   /** Horizontal span, wall to wall (outside of the wall plates). */
   span: number;
   /** Supply exactly one of rise, pitch or rafter. */
@@ -390,11 +390,16 @@ export interface RoofResult {
   type: RoofType;
   span: number;
   rise: number;
+  /** Left slope; for a mansard roof the steep lower part (same on both sides). */
   left: RoofSide;
   right: RoofSide | null;
-  /** Area of the gable triangle (or mono-pitch end wall above plate height). */
+  /** Mansard roof only: the flatter upper part, from the knee to the ridge. */
+  upper: RoofSide | null;
+  /** Mansard roof only: left knee point (where the slope changes). */
+  knee: Point | null;
+  /** Area of the gable end above wall-plate height. */
   gableArea: number;
-  /** Outline of the gable for drawing: plate left, ridge, plate right (zadeldak) or plate, top, foot. */
+  /** Outline of the gable for drawing, starting at the left wall plate. */
   outline: Point[];
 }
 
@@ -451,7 +456,99 @@ export function roofSection(input: RoofInput): RoofResult {
         { x: leftRun, y: rise },
         { x: input.span, y: 0 },
       ];
-  return { type: input.type, span: input.span, rise, left, right, gableArea: (input.span * rise) / 2, outline };
+  return { type: input.type, span: input.span, rise, left, right, upper: null, knee: null, gableArea: (input.span * rise) / 2, outline };
+}
+
+/** A straight slope: horizontal run, vertical rise, pitch (degrees) and length along the slope. */
+export interface Slope {
+  run: number;
+  rise: number;
+  pitch: number;
+  length: number;
+}
+
+export interface SlopeInput {
+  run?: number | null;
+  rise?: number | null;
+  pitch?: number | null;
+  length?: number | null;
+}
+
+/** Complete a slope from exactly two of run, rise, pitch and length. */
+export function solveSlope(input: SlopeInput, label = 'Dit dakdeel'): Slope {
+  const { run, rise, pitch, length } = input;
+  const count = [run, rise, pitch, length].filter(has).length;
+  if (count !== 2) throw new GeometryError(`${label}: vul precies twee van de vier waarden in.`);
+  if (has(run)) requirePositive(run, `${label}: de horizontale maat`);
+  if (has(rise)) requirePositive(rise, `${label}: de hoogte`);
+  if (has(length)) requirePositive(length, `${label}: de lengte`);
+  if (has(pitch) && (pitch <= 0 || pitch >= 90)) throw new GeometryError(`${label}: de helling moet tussen 0° en 90° liggen.`);
+  const tooShort = () => new GeometryError(`${label}: de lengte langs de helling moet langer zijn dan de horizontale of verticale maat.`);
+
+  let r: number;
+  let h: number;
+  if (has(run) && has(rise)) [r, h] = [run, rise];
+  else if (has(run) && has(pitch)) [r, h] = [run, run * Math.tan(toRad(pitch))];
+  else if (has(run) && has(length)) {
+    if (length <= run) throw tooShort();
+    [r, h] = [run, Math.sqrt(length ** 2 - run ** 2)];
+  } else if (has(rise) && has(pitch)) [r, h] = [rise / Math.tan(toRad(pitch)), rise];
+  else if (has(rise) && has(length)) {
+    if (length <= rise) throw tooShort();
+    [r, h] = [Math.sqrt(length ** 2 - rise ** 2), rise];
+  } else [r, h] = [length! * Math.cos(toRad(pitch!)), length! * Math.sin(toRad(pitch!))];
+  return { run: r, rise: h, pitch: toDeg(Math.atan2(h, r)), length: Math.hypot(r, h) };
+}
+
+export interface MansardInput {
+  /** Horizontal span, wall to wall. */
+  span: number;
+  /** Steep lower part: exactly two of run (inset to the knee), rise (knee height), pitch, length. */
+  lower: SlopeInput;
+  /** Flatter upper part: exactly one of rise (ridge above knee), pitch, length. Its run follows from the span. */
+  upper: Omit<SlopeInput, 'run'>;
+  overhang?: number | null;
+}
+
+/** Symmetric mansard roof (mansardekap): a steep lower slope and a flatter upper slope on each side. */
+export function mansardSection(input: MansardInput): RoofResult {
+  requirePositive(input.span, 'De overspanning');
+  const overhang = has(input.overhang) ? input.overhang : 0;
+  if (overhang < 0) throw new GeometryError('De overstek kan niet negatief zijn.');
+
+  const lower = solveSlope(input.lower, 'Onderdak');
+  const half = input.span / 2;
+  if (lower.run >= half - 1e-9) {
+    throw new GeometryError(`Onderdak: de knik ligt ${fmt(lower.run)} naar binnen, dat is voorbij het midden (${fmt(half)}).`);
+  }
+  const upperGiven = [input.upper.rise, input.upper.pitch, input.upper.length].filter(has).length;
+  if (upperGiven !== 1) throw new GeometryError('Bovendak: vul precies één in: hoogte tot de nok, helling of lengte.');
+  const upper = solveSlope({ run: half - lower.run, ...input.upper }, 'Bovendak');
+  if (upper.pitch >= lower.pitch) {
+    throw new GeometryError('Het bovendak moet flauwer zijn dan het onderdak, anders is het geen mansardekap.');
+  }
+
+  const rise = lower.rise + upper.rise;
+  const knee = { x: lower.run, y: lower.rise };
+  const outline: Point[] = [
+    { x: 0, y: 0 },
+    knee,
+    { x: half, y: rise },
+    { x: input.span - lower.run, y: lower.rise },
+    { x: input.span, y: 0 },
+  ];
+  const lowerSide = side(lower.run, lower.rise, overhang);
+  return {
+    type: 'mansardekap',
+    span: input.span,
+    rise,
+    left: lowerSide,
+    right: lowerSide,
+    upper: side(upper.run, upper.rise, 0),
+    knee,
+    gableArea: Math.abs(signedArea(outline)),
+    outline,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 import {
   analyzePolygon,
+  mansardSection,
+  solveSlope,
   angleFromSides,
   cornerAngle,
   GeometryError,
@@ -301,6 +303,78 @@ describe('roofSection', () => {
     expect(() => roofSection({ type: 'zadeldak', span: 8, rafter: 3 })).toThrowError(/sparlengte/);
     expect(() => roofSection({ type: 'zadeldak', span: 8, pitch: 90 })).toThrowError(GeometryError);
     expect(() => roofSection({ type: 'zadeldak', span: 8, rise: 3, ridgeOffset: 9 })).toThrowError(GeometryError);
+  });
+});
+
+describe('solveSlope', () => {
+  const base = { run: 3, rise: 4, pitch: (Math.atan2(4, 3) * 180) / Math.PI, length: 5 };
+  const pairs: [keyof typeof base, keyof typeof base][] = [
+    ['run', 'rise'],
+    ['run', 'pitch'],
+    ['run', 'length'],
+    ['rise', 'pitch'],
+    ['rise', 'length'],
+    ['pitch', 'length'],
+  ];
+  for (const [p, q] of pairs) {
+    it(`from ${p} + ${q}`, () => {
+      const r = solveSlope({ [p]: base[p], [q]: base[q] });
+      close(r.run, 3);
+      close(r.rise, 4);
+      close(r.length, 5);
+      close(r.pitch, base.pitch);
+    });
+  }
+
+  it('requires exactly two values', () => {
+    expect(() => solveSlope({ run: 3 })).toThrowError(/precies twee/);
+    expect(() => solveSlope({ run: 3, rise: 4, length: 5 })).toThrowError(/precies twee/);
+  });
+
+  it('rejects a length shorter than run or rise', () => {
+    expect(() => solveSlope({ run: 3, length: 2 })).toThrowError(GeometryError);
+    expect(() => solveSlope({ rise: 3, length: 3 })).toThrowError(GeometryError);
+  });
+});
+
+describe('mansardSection', () => {
+  // 8 m span, knee 1 m in and 2,5 m up, ridge 1,5 m above the knee.
+  const r = mansardSection({ span: 8, lower: { run: 1, rise: 2.5 }, upper: { rise: 1.5 }, overhang: 0.3 });
+
+  it('solves both slopes', () => {
+    close(r.rise, 4);
+    close(r.left.pitch, (Math.atan2(2.5, 1) * 180) / Math.PI);
+    close(r.left.rafter, Math.hypot(1, 2.5));
+    close(r.upper!.run, 3);
+    close(r.upper!.rafter, Math.hypot(3, 1.5));
+    close(r.upper!.pitch, (Math.atan2(1.5, 3) * 180) / Math.PI);
+    expect(r.knee).toEqual({ x: 1, y: 2.5 });
+  });
+
+  it('overhang extends the lower rafter only', () => {
+    close(r.left.rafterWithOverhang, Math.hypot(1, 2.5) + 0.3 / Math.cos(Math.atan2(2.5, 1)));
+    close(r.upper!.rafterWithOverhang, r.upper!.rafter);
+  });
+
+  it('gable area = rectangle-ish lower band + triangle on top', () => {
+    // Lower trapezoid: (8 + 6) / 2 * 2,5 = 17,5; upper triangle: 6 * 1,5 / 2 = 4,5
+    close(r.gableArea, 22);
+    expect(r.outline.length).toBe(5);
+  });
+
+  it('lower part from pitch and length, upper from pitch', () => {
+    const m = mansardSection({ span: 9, lower: { pitch: 70, length: 3 }, upper: { pitch: 25 } });
+    close(m.left.pitch, 70);
+    close(m.left.rafter, 3);
+    close(m.upper!.pitch, 25);
+    close(m.rise, 3 * Math.sin((70 * Math.PI) / 180) + (4.5 - 3 * Math.cos((70 * Math.PI) / 180)) * Math.tan((25 * Math.PI) / 180));
+  });
+
+  it('validates input', () => {
+    expect(() => mansardSection({ span: 8, lower: { run: 4, rise: 2 }, upper: { rise: 1 } })).toThrowError(/voorbij het midden/);
+    expect(() => mansardSection({ span: 8, lower: { run: 1, rise: 2.5 }, upper: {} })).toThrowError(/precies één/);
+    expect(() => mansardSection({ span: 8, lower: { run: 1, rise: 2.5 }, upper: { rise: 1, pitch: 20 } })).toThrowError(/precies één/);
+    expect(() => mansardSection({ span: 8, lower: { run: 2, rise: 1 }, upper: { pitch: 60 } })).toThrowError(/flauwer/);
   });
 });
 

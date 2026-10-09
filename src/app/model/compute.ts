@@ -1,5 +1,6 @@
 import {
   cornerAngle,
+  mansardSection,
   CornerResult,
   GeometryError,
   Opening,
@@ -120,13 +121,29 @@ export interface DakResult {
 export function computeDak(item: DakItem): Outcome<DakResult> {
   return guard(() => {
     const span = len(item.span, 'Overspanning');
-    const rise = len(item.rise, 'Nokhoogte');
-    const pitch = ang(item.pitch, 'Dakhelling');
-    const rafter = len(item.rafter, 'Sparlengte');
-    const ridgeOffset = item.roofType === 'zadeldak' ? len(item.ridgeOffset, 'Afstand tot nok') : null;
+    const rise = len(item.rise, item.roofType === 'mansardekap' ? 'Hoogte bovendak' : 'Nokhoogte');
+    const pitch = ang(item.pitch, item.roofType === 'mansardekap' ? 'Helling bovendak' : 'Dakhelling');
+    const rafter = len(item.rafter, item.roofType === 'mansardekap' ? 'Lengte bovendak' : 'Sparlengte');
     const overhang = len(item.overhang, 'Overstek');
     const length = len(item.length, 'Daklengte');
     if (span === null) return incomplete('Vul de overspanning in.');
+
+    if (item.roofType === 'mansardekap') {
+      const lower = {
+        run: len(item.lowerRun ?? '', 'Inzet knik'),
+        rise: len(item.lowerRise ?? '', 'Knikhoogte'),
+        pitch: ang(item.lowerPitch ?? '', 'Helling onderdak'),
+        length: len(item.lowerRafter ?? '', 'Lengte onderdak'),
+      };
+      const lowerGiven = Object.values(lower).filter((v) => v !== null).length;
+      if (lowerGiven < 2) return incomplete(`Vul voor het onderdak nog ${2 - lowerGiven} waarde${lowerGiven === 1 ? '' : 'n'} in.`);
+      if ([rise, pitch, rafter].every((v) => v === null)) return incomplete('Vul voor het bovendak de hoogte, helling of lengte in.');
+      const roof = mansardSection({ span, lower, upper: { rise, pitch, length: rafter }, overhang });
+      const perSide = length === null ? null : (roof.left.rafterWithOverhang + roof.upper!.rafter) * length;
+      return { status: 'ok', value: { roof, surfaceLeft: perSide, surfaceRight: perSide } };
+    }
+
+    const ridgeOffset = item.roofType === 'zadeldak' ? len(item.ridgeOffset, 'Afstand tot nok') : null;
     const given = [rise, pitch, rafter].filter((v) => v !== null).length;
     if (given === 0) return incomplete('Vul nokhoogte, dakhelling of sparlengte in.');
     const roof = roofSection({ type: item.roofType, span, rise, pitch, rafter, ridgeOffset, overhang });

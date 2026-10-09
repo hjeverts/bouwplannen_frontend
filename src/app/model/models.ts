@@ -57,11 +57,17 @@ export interface VormItem extends BaseItem {
 
 export interface DakItem extends BaseItem {
   kind: 'dak';
-  roofType: 'zadeldak' | 'lessenaarsdak';
+  roofType: 'zadeldak' | 'lessenaarsdak' | 'mansardekap';
   span: string;
+  /** Rise, pitch and rafter; for a mansard roof these describe the upper part (knee to ridge). */
   rise: string;
   pitch: string;
   rafter: string;
+  /** Mansard roof, steep lower part (optional: older saved items do not have them). */
+  lowerRun?: string;
+  lowerRise?: string;
+  lowerPitch?: string;
+  lowerRafter?: string;
   ridgeOffset: string;
   overhang: string;
   /** Length of the roof along the ridge, for roof surface. */
@@ -141,6 +147,10 @@ export function createItem(kind: ItemKind, name?: string): Item {
         rise: '',
         pitch: '',
         rafter: '',
+        lowerRun: '',
+        lowerRise: '',
+        lowerPitch: '',
+        lowerRafter: '',
         ridgeOffset: '',
         overhang: '',
         length: '',

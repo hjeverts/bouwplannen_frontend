@@ -213,6 +213,13 @@ export interface PlattegrondItem extends BaseItem {
   /** Shift of the outside walls relative to the floor below (right and back). */
   shiftX: string;
   shiftY: string;
+  /**
+   * Height of the top of this floor above the floor below. Empty: the highest room under it plus
+   * the floor thickness.
+   */
+  floorHeight?: string;
+  /** A floor without walls inside the floor below: loft (vliering), mezzanine (entresol). */
+  open?: boolean;
   /** Stairwells in this floor (optional: older items lack it). */
   voids?: VoidEntry[];
   /** Roofs on this floor; replaces roofId/ridge/roofFlip/plateHeight when present. */

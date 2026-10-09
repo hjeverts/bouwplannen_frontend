@@ -105,6 +105,8 @@ export interface PlacedVoid {
 }
 
 export interface PlanInput {
+  /** A floor without walls (loft, mezzanine): no outer walls, `outerWall` is ignored. */
+  open?: boolean;
   rooms: PlanRoomInput[];
   voids?: PlanVoidInput[];
   outerWall: number;
@@ -381,8 +383,8 @@ function check(measured: number | null, inner: number, outerWall: number): Dimen
 }
 
 export function buildFloorPlan(input: PlanInput): FloorPlan {
-  const outerWall = input.outerWall;
-  if (!(outerWall > 0)) throw new GeometryError('De buitenmuur moet dikker zijn dan 0.');
+  const outerWall = input.open ? 0 : input.outerWall;
+  if (!input.open && !(outerWall > 0)) throw new GeometryError('De buitenmuur moet dikker zijn dan 0.');
   const warnings: string[] = [];
   const unplaced: { name: string; reason: string }[] = [];
   const byId = new Map(input.rooms.map((r) => [r.id, r]));

@@ -151,6 +151,7 @@ interface RoomChoice {
       <button type="button" class="btn btn--quiet" (click)="addVoid()" [disabled]="item().rooms.length === 0">+ Trapgat</button>
     </details>
 
+    @if (!item().open) {
     <details class="more" [open]="!!item().measuredWidth || !!item().measuredDepth">
       <summary>Buitenmuren en buitenmaat</summary>
       <div class="fields fields--3">
@@ -162,6 +163,7 @@ interface RoomChoice {
       <button type="button" class="btn btn--quiet" (click)="set('turn', (item().turn + 1) % 4)">Plattegrond een kwartslag draaien ↻</button>
       <p class="hint">De onderkant van de plattegrond is de voorgevel.</p>
     </details>
+    }
 
     <details class="more" [open]="!!item().below">
       <summary>Verdieping</summary>
@@ -176,17 +178,45 @@ interface RoomChoice {
           </select>
         </label>
         @if (item().below) {
+          <app-measure-field
+            label="Hoogte vloer"
+            [value]="item().floorHeight ?? ''"
+            (valueChange)="set('floorHeight', $event)"
+            [placeholder]="floorHeightPlaceholder()"
+            hint="Bovenkant vloer, vanaf de vloer eronder; leeg = ruimte eronder + vloerdikte"
+          />
           <app-measure-field label="Vloerdikte" [value]="item().floorThickness" (valueChange)="set('floorThickness', $event)" hint="Plafond beneden tot vloer hier" />
-          <app-measure-field label="Verschuiving naar rechts" [value]="item().shiftX" (valueChange)="set('shiftX', $event)" hint="Buitenkant t.o.v. de verdieping eronder" />
-          <app-measure-field label="Verschuiving naar achter" [value]="item().shiftY" (valueChange)="set('shiftY', $event)" />
+          <app-measure-field
+            label="Verschuiving naar rechts"
+            [value]="item().shiftX"
+            (valueChange)="set('shiftX', $event)"
+            [placeholder]="item().open ? shiftPlaceholder() : '0'"
+            [hint]="item().open ? 'Rand vloer t.o.v. buitenkant muur eronder' : 'Buitenkant t.o.v. de verdieping eronder'"
+          />
+          <app-measure-field label="Verschuiving naar achter" [value]="item().shiftY" (valueChange)="set('shiftY', $event)" [placeholder]="item().open ? shiftPlaceholder() : '0'" />
         }
       </div>
+      @if (item().below) {
+        <label class="check">
+          <input type="checkbox" [checked]="!!item().open" (change)="set('open', !item().open)" />
+          Zonder wanden: vliering of entresol in de ruimte eronder
+        </label>
+        @if (item().open) {
+          <p class="hint">
+            Geen buitenmuren en geen gevels: de vloer ligt in de ruimte eronder, standaard tegen de binnenkant van de muren. Meet de vloer als Vorm (hoogte
+            is niet nodig).
+          </p>
+          <button type="button" class="btn btn--quiet" (click)="set('turn', (item().turn + 1) % 4)">Vloer een kwartslag draaien ↻</button>
+        }
+      }
     </details>
 
-    <details class="more" [open]="roofList().length > 0">
-      <summary>Kap, dakkapellen en dakramen</summary>
-      <app-roofs-panel [entries]="roofList()" [rooms]="placedRooms()" [daks]="roofs()" [plan]="plan()" [info]="result()" (changed)="setRoofs($event)" />
-    </details>
+    @if (!item().open) {
+      <details class="more" [open]="roofList().length > 0">
+        <summary>Kap, dakkapellen en dakramen</summary>
+        <app-roofs-panel [entries]="roofList()" [rooms]="placedRooms()" [daks]="roofs()" [plan]="plan()" [info]="result()" (changed)="setRoofs($event)" />
+      </details>
+    }
 
     <app-results [rows]="rows()" [message]="message()" [state]="outcome().status" />
     @for (w of notes(); track w) {
@@ -297,13 +327,12 @@ export class PlattegrondEditor {
     const r = this.result();
     if (!r) return [];
     const p = r.plan;
-    const rows: ResultRow[] = [
-      { label: 'Netto vloeroppervlak', value: formatArea(p.netArea), main: true },
-      { label: 'Bruto (buitenwerks)', value: formatArea(p.grossArea) },
-    ];
+    const open = !!this.item().open;
+    const rows: ResultRow[] = [{ label: open ? 'Vloeroppervlak' : 'Netto vloeroppervlak', value: formatArea(p.netArea), main: true }];
+    if (!open) rows.push({ label: 'Bruto (buitenwerks)', value: formatArea(p.grossArea) });
     if (p.voidArea > 0) rows.push({ label: 'Waarvan trapgat', value: formatArea(p.voidArea) }, { label: 'Vloer zonder trapgat', value: formatArea(p.netArea - p.voidArea) });
     if (p.volume !== null) rows.push({ label: 'Inhoud ruimtes', value: formatVolume(p.volume) });
-    rows.push({ label: 'Binnenmuren', value: formatLength(p.partitionLength, 2) });
+    if (!open || p.partitionLength > 0) rows.push({ label: 'Binnenmuren', value: formatLength(p.partitionLength, 2) });
     const dim = (label: string, c: typeof p.width) => {
       rows.push({ label: `${label} berekend`, value: formatLength(c.computed) });
       if (c.diff !== null) {
@@ -312,8 +341,10 @@ export class PlattegrondEditor {
         if (!ok) rows.push({ label: `Dan is de buitenmuur`, value: `${formatLength(c.impliedWall)} dik` });
       }
     };
-    dim('Breedte', p.width);
-    dim('Diepte', p.depth);
+    if (!this.item().open) {
+      dim('Breedte', p.width);
+      dim('Diepte', p.depth);
+    }
     for (const roof of p.roofs) {
       const name = p.roofs.length > 1 ? ` (${roof.name})` : '';
       rows.push({ label: `Nok boven deze vloer${name}`, value: formatLength(roof.ridgeHeight) });
@@ -345,6 +376,19 @@ export class PlattegrondEditor {
       rooms.length === 0 ? { roomId: next.id } : { roomId: next.id, to: rooms[rooms.length - 1].roomId, wall: '', toWall: '', thickness: '0,100', offset: '0' };
     this.changed.emit({ ...this.item(), rooms: [...rooms, entry] });
   }
+
+  /** Height of this floor above the one below as the app works it out (shown when the field is empty). */
+  protected readonly floorHeightPlaceholder = computed(() => {
+    const levels = this.levels();
+    const me = levels.find((l) => l.id === this.item().id);
+    const below = levels.find((l) => l.id === this.item().below);
+    return me && below ? formatLength(me.base - below.base).replace(' m', '') : '';
+  });
+
+  protected readonly shiftPlaceholder = computed(() => {
+    const below = this.levels().find((l) => l.id === this.item().below);
+    return below ? formatLength(below.plan.outerWall).replace(' m', '') : '';
+  });
 
   protected readonly placedRooms = computed(() => this.vorms().filter((v) => this.item().rooms.some((r) => r.roomId === v.id)));
 

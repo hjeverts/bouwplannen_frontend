@@ -1,6 +1,6 @@
 import { Level, LevelInput, stackLevels } from '../geometry/building';
 import { buildFloorPlan, FloorPlan, PlanOpeningInput, PlanRoofInput, PlanRoomInput, PlanVoidInput } from '../geometry/floorplan';
-import { GeometryError } from '../geometry/geometry';
+import { GeometryError, Point } from '../geometry/geometry';
 import { parseLength } from '../geometry/units';
 import { computeDak, computeVorm, Outcome } from './compute';
 import { DakItem, Item, PlattegrondItem, roofEntries, VormItem } from './models';
@@ -87,8 +87,10 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
     // The first complete room is the starting point, even when an earlier one is not complete yet.
     rooms[0] = { ...rooms[0], link: null };
 
-    const outerWall = lengthOr(item.outerWall, 'Buitenmuur', null);
+    const outerWall = item.open ? 0 : lengthOr(item.outerWall, 'Buitenmuur', null);
     if (outerWall === null) return { status: 'incomplete', message: 'Vul de dikte van de buitenmuur in.' };
+    // A loft has no walls, so its rooms need no height.
+    if (item.open) assumedHeight.length = 0;
 
     const roofs: PlanRoofInput[] = [];
     const roofInfo: PlattegrondResult['roofInfo'] = [];
@@ -176,6 +178,7 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
     }
 
     const plan = buildFloorPlan({
+      open: !!item.open,
       rooms,
       voids,
       outerWall,
@@ -205,16 +208,26 @@ export function computeBuilding(item: PlattegrondItem, items: Item[]): Level[] {
     const r = computePlattegrond(p, items);
     if (r.status !== 'ok' || r.value.plan.rooms.length === 0) continue;
     let thickness = 0.3;
-    let dx = 0;
-    let dy = 0;
+    let dx: number | null = null;
+    let dy: number | null = null;
+    let floorHeight: number | null = null;
     try {
       thickness = lengthOr(p.floorThickness, 'Vloerdikte', 0.3) ?? 0.3;
-      dx = lengthOr(p.shiftX, 'Verschuiving', 0) ?? 0;
-      dy = lengthOr(p.shiftY, 'Verschuiving', 0) ?? 0;
+      dx = lengthOr(p.shiftX, 'Verschuiving', null);
+      dy = lengthOr(p.shiftY, 'Verschuiving', null);
+      floorHeight = p.below ? lengthOr(p.floorHeight, 'Hoogte vloer', null) : null;
     } catch {
       // Unreadable values are reported in that floor's own editor.
     }
-    inputs.push({ id: p.id, name: p.name, plan: r.value.plan, below: p.below || null, floorThickness: thickness, dx, dy });
+    inputs.push({ id: p.id, name: p.name, plan: r.value.plan, below: p.below || null, floorThickness: thickness, dx: dx ?? NaN, dy: dy ?? NaN, floorHeight, open: !!p.open });
+  }
+  // Without a shift, a floor lines up with the outside of the walls of the floor below; a loft
+  // (no walls) with the inside of those walls.
+  for (const l of inputs) {
+    const below = inputs.find((b) => b.id === l.below);
+    const inset = l.open && below ? below.plan.outerWall : 0;
+    if (Number.isNaN(l.dx)) l.dx = inset;
+    if (Number.isNaN(l.dy)) l.dy = inset;
   }
   return stackLevels(inputs, item.id);
 }
@@ -230,6 +243,22 @@ export function voidsFromAbove(levels: Level[], levelId: string): { name: string
       points: v.points.map((p) => ({ x: p.x + a.offset.x - level.offset.x, y: p.y + a.offset.y - level.offset.y })),
     })),
   );
+}
+
+/**
+ * Context for the plan of a floor: for a loft the rooms of the floor it lies in (thin lines), for
+ * any floor the lofts lying in it (dashed, with their height). In this floor's plan coordinates.
+ */
+export function planContext(levels: Level[], levelId: string): { under: Point[][]; lofts: { name: string; height: number; rings: Point[][] }[] } {
+  const level = levels.find((l) => l.id === levelId);
+  if (!level) return { under: [], lofts: [] };
+  const shift = (from: Level) => (p: Point) => ({ x: p.x + from.offset.x - level.offset.x, y: p.y + from.offset.y - level.offset.y });
+  const host = level.open ? levels.find((l) => l.id === level.below) : undefined;
+  const under = host ? host.plan.rooms.map((r) => r.points.map(shift(host))) : [];
+  const lofts = levels
+    .filter((l) => l.open && l.below === level.id)
+    .map((l) => ({ name: l.name, height: l.base - level.base, rings: l.plan.rooms.map((r) => r.points.map(shift(l))) }));
+  return { under, lofts };
 }
 
 /** Floors that may be chosen as "below" this one: no loops. */

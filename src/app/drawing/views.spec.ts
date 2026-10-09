@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cutawayFaces, exteriorFaces, faceNormal, project, stackLevels, viewDirection } from '../geometry/building';
 import { buildFloorPlan, PlanRoomInput } from '../geometry/floorplan';
 import { roofSection } from '../geometry/geometry';
-import { computeBuilding, computePlattegrond, voidsFromAbove } from '../model/compute-plan';
+import { computeBuilding, computePlattegrond, planContext, voidsFromAbove } from '../model/compute-plan';
 import { exampleHouse } from '../model/examples';
 import { PlattegrondItem } from '../model/models';
 import { projectToCsv } from '../model/export';
@@ -509,3 +509,117 @@ describe('room inside another room', () => {
   });
 });
 
+
+describe('loft without walls and floor heights', () => {
+  const rect = (w: number, d: number) => [
+    { x: 0, y: 0 },
+    { x: w, y: 0 },
+    { x: w, y: d },
+    { x: 0, y: d },
+  ];
+  const room = (id: string, w: number, d: number, h: number, link: PlanRoomInput['link'] = null): PlanRoomInput => ({
+    id,
+    name: id,
+    points: rect(w, d),
+    heights: [h],
+    openings: [],
+    volume: null,
+    mirror: false,
+    link,
+  });
+  const plan = (rooms: PlanRoomInput[], open = false) =>
+    buildFloorPlan({ open, rooms, outerWall: 0.3, measuredWidth: null, measuredDepth: null, turn: 0, roofs: [] });
+
+  it('puts a floor over the low part at the height of that part, not the highest room', () => {
+    // Living part 2,6 m high, garage next to it 4 m high; the upper floor covers the living part only.
+    const ground = plan([room('wonen', 5, 6, 2.6), room('garage', 4, 6, 4, { to: 'wonen', wall: 3, toWall: 1, thickness: 0.2, offset: 0 })]);
+    const upper = plan([room('kamer', 5, 6, 2.5)]);
+    const levels = stackLevels(
+      [
+        { id: 'bg', name: 'bg', plan: ground, below: null, floorThickness: 0.3, dx: 0, dy: 0 },
+        { id: 'v1', name: 'v1', plan: upper, below: 'bg', floorThickness: 0.3, dx: 0, dy: 0 },
+      ],
+      'v1',
+    );
+    expect(levels[1].base).toBeCloseTo(2.6 + 0.3, 9);
+    // An explicit height wins.
+    const set = stackLevels(
+      [
+        { id: 'bg', name: 'bg', plan: ground, below: null, floorThickness: 0.3, dx: 0, dy: 0 },
+        { id: 'v1', name: 'v1', plan: upper, below: 'bg', floorThickness: 0.3, dx: 0, dy: 0, floorHeight: 3.1 },
+      ],
+      'v1',
+    );
+    expect(set[1].base).toBeCloseTo(3.1, 9);
+  });
+
+  it('places a loft inside the garage: no walls, no facades, the garage walls stay full height', () => {
+    const garage = plan([room('garage', 6, 8, 3.5)]);
+    const loft = plan([room('vliering', 6, 3, 1)], true);
+    expect(loft.outerWall).toBe(0);
+    expect(loft.wallRings.length).toBe(0);
+    const levels = stackLevels(
+      [
+        { id: 'g', name: 'Garage', plan: garage, below: null, floorThickness: 0.3, dx: 0, dy: 0 },
+        { id: 'l', name: 'Vliering', plan: loft, below: 'g', floorThickness: 0.2, dx: 0.3, dy: 0.3 + 5, floorHeight: 2.4, open: true },
+      ],
+      'l',
+    );
+    const [g, l] = levels;
+    expect(l.open).toBe(true);
+    expect(l.base).toBeCloseTo(2.4, 9);
+    expect(g.above).toBeNull(); // a loft is not a floor on top
+    const faces = exteriorFaces(levels);
+    expect(faces.every((f) => f.level === 0)).toBe(true);
+    const top = Math.max(...faces.filter((f) => f.kind === 'facade').flatMap((f) => f.pts.map((p) => p.z)));
+    expect(top).toBeCloseTo(3.5 + 0.3, 6); // garage walls up to its own flat roof
+    // The garage plan shows the loft dashed with its height; the loft shows the garage underneath.
+    const ctx = planContext(levels, 'g');
+    expect(ctx.lofts).toHaveLength(1);
+    expect(ctx.lofts[0].height).toBeCloseTo(2.4, 9);
+    const gv = planView(garage, ctx);
+    expect(gv.prims.some((p) => p.t === 'text' && p.text === 'Vliering +2400')).toBe(true);
+    expect(planContext(levels, 'l').under).toHaveLength(1);
+    // Inside view: the garage cut under the loft with the loft slab on top.
+    const inside = cutawayView(l, { azimuth: -30, elevation: 35 }, 'x', g);
+    expect(inside.prims.some((p) => p.t === 'text' && p.text === 'vliering')).toBe(true);
+    // The elevations do not mark the loft as a floor level.
+    const front = elevationView(levels, 'voor');
+    expect(front.prims.some((p) => p.t === 'text' && p.text === '+2400')).toBe(false);
+  });
+
+  it('lines a loft up with the inside of the walls when no shift is given', () => {
+    const now = new Date().toISOString();
+    const vorm = (id: string, w: number, d: number, h: string) =>
+      ({
+        id,
+        kind: 'vorm',
+        name: id,
+        notes: '',
+        updated: now,
+        method: 'hoeken',
+        sides: [String(w), String(d), String(w), String(d)],
+        diagonals: [''],
+        flips: [false, false, false, false],
+        angles: ['90', '90'],
+        height: h,
+        heightMode: 'gelijk',
+        heights: ['', '', '', ''],
+        openings: [],
+      }) as const;
+    const base = { notes: '', updated: now, measuredWidth: '', measuredDepth: '', turn: 0, roofId: '', ridge: 'x' as const, roofFlip: false, plateHeight: '', floorThickness: '0,2', shiftX: '', shiftY: '' };
+    const items = [
+      vorm('garage', 6, 8, '3,5'),
+      vorm('vliering', 6, 3, ''),
+      { ...base, id: 'g', kind: 'plattegrond' as const, name: 'Garage', rooms: [{ roomId: 'garage' }], outerWall: '0,3', below: '' },
+      { ...base, id: 'l', kind: 'plattegrond' as const, name: 'Vliering', rooms: [{ roomId: 'vliering' }], outerWall: '', below: 'g', open: true, floorHeight: '2,4' },
+    ] as unknown as PlattegrondItem[];
+    const r = computePlattegrond(items[3], items);
+    expect(r.status).toBe('ok');
+    const levels = computeBuilding(items[3], items);
+    const loft = levels.find((x) => x.id === 'l')!;
+    expect(loft.offset.x).toBeCloseTo(0.3, 9);
+    expect(loft.offset.y).toBeCloseTo(0.3, 9);
+    expect(loft.base).toBeCloseTo(2.4, 9);
+  });
+});

@@ -80,6 +80,10 @@ export interface PlanViewOptions {
   roof?: boolean;
   /** Stairwells in the floor above, shown dashed ("trap ↑"). */
   fromAbove?: { name: string; points: Point[] }[];
+  /** A loft: the rooms of the floor it lies in, as thin lines. */
+  under?: Point[][];
+  /** Lofts lying in this floor: dashed outline with name and floor height. */
+  lofts?: { name: string; height: number; rings: Point[][] }[];
   title?: string;
 }
 
@@ -153,6 +157,16 @@ export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
     prims.push({ t: 'dim', a, b, off: -6 * orientationSign(v.points), text: mm(Math.hypot(b.x - a.x, b.y - a.y)), ext: false });
     prims.push({ t: 'dim', a: b, b: c, off: -6 * orientationSign(v.points), text: mm(Math.hypot(c.x - b.x, c.y - b.y)), ext: false });
     prims.push({ t: 'text', at: centre(v.points), text: v.name, cls: 'label-sub', size: 2.3, dy: 2.2 });
+  }
+  for (const ring of opts.under ?? []) prims.push({ t: 'line', pts: ring, cls: 'sym-thin', closed: true });
+  for (const loft of opts.lofts ?? []) {
+    for (const ring of loft.rings) prims.push({ t: 'line', pts: ring, cls: 'roof-line', closed: true });
+    const all = loft.rings.flat();
+    if (all.length) {
+      // In the middle of the loft, under the room's own name if that is there too.
+      const c = { x: (Math.min(...all.map((p) => p.x)) + Math.max(...all.map((p) => p.x))) / 2, y: (Math.min(...all.map((p) => p.y)) + Math.max(...all.map((p) => p.y))) / 2 };
+      prims.push({ t: 'text', at: c, text: `${loft.name} +${mm(loft.height)}`, cls: 'label-sub', size: 2.2 });
+    }
   }
   for (const v of opts.fromAbove ?? []) {
     prims.push({ t: 'line', pts: v.points, cls: 'sym-thin', closed: true });
@@ -264,17 +278,35 @@ export function exteriorView(levels: Level[], cam: Camera, title?: string): View
 }
 
 /** One floor from above with the walls cut, like a doll's house. */
-export function cutawayView(level: Level, cam: Camera, title?: string): View {
-  const minHeight = Math.min(...level.plan.rooms.flatMap((r) => r.heights));
-  const cut = Math.max(0.5, Math.min(Number.isFinite(minHeight) ? minHeight : 2.4, 2.6));
-  const faces = project(cutawayFaces(level, cut), cam);
-  const prims = projectedPrims(faces, false);
-  const proj = (p: Point) => {
+export function cutawayView(level: Level, cam: Camera, title?: string, host?: Level): View {
+  const proj = (p: Point, z = 0) => {
     const az = (cam.azimuth * Math.PI) / 180;
     const el = (cam.elevation * Math.PI) / 180;
     const y1 = p.x * Math.sin(az) + p.y * Math.cos(az);
-    return { x: p.x * Math.cos(az) - p.y * Math.sin(az), y: y1 * Math.sin(el) };
+    return { x: p.x * Math.cos(az) - p.y * Math.sin(az), y: z * Math.cos(el) + y1 * Math.sin(el) };
   };
+  const cutOf = (lv: Level) => {
+    const minHeight = Math.min(...lv.plan.rooms.flatMap((r) => r.heights));
+    return Math.max(0.5, Math.min(Number.isFinite(minHeight) ? minHeight : 2.4, 2.6));
+  };
+  if (level.open && host) {
+    // A loft: the floor it lies in, its walls cut just under the loft, and the loft on top.
+    const dz = level.base - host.base;
+    const d = { x: level.offset.x - host.offset.x, y: level.offset.y - host.offset.y };
+    const lower = cutawayFaces(host, Math.max(0.5, Math.min(cutOf(host), dz - 0.02)));
+    const loft = cutawayFaces(level, 0).map((f) => ({
+      ...f,
+      level: 1,
+      pts: f.pts.map((p) => ({ x: p.x + d.x, y: p.y + d.y, z: p.z + dz })),
+      holes: f.holes.map((h) => h.map((p) => ({ x: p.x + d.x, y: p.y + d.y, z: p.z + dz }))),
+    }));
+    const prims = projectedPrims(project([...lower, ...loft], cam), false);
+    for (const r of host.plan.rooms) prims.push({ t: 'text', at: proj(r.centroid), text: r.name, cls: 'label', size: 2.4 });
+    for (const r of level.plan.rooms) prims.push({ t: 'text', at: proj({ x: r.centroid.x + d.x, y: r.centroid.y + d.y }, dz), text: r.name, cls: 'label', size: 2.6 });
+    return { prims, title, scalable: false };
+  }
+  const faces = project(cutawayFaces(level, cutOf(level)), cam);
+  const prims = projectedPrims(faces, false);
   for (const r of level.plan.rooms) prims.push({ t: 'text', at: proj(r.centroid), text: r.name, cls: 'label', size: 2.6 });
   return { prims, title, scalable: false };
 }
@@ -323,7 +355,7 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
 
   // Vertical, right of the building: floor levels, eaves/top of the walls and the ridge.
   const heights = new Set<number>([0, top]);
-  for (const lv of levels) if (lv.base > 0) heights.add(lv.base);
+  for (const lv of levels) if (lv.base > 0 && !lv.open) heights.add(lv.base);
   // In an elevation the screen height is the real height: take the corners of walls, dormers and flat roofs.
   // Only corners you can see: not covered by a face drawn later (nearer).
   faces.forEach((f, i) => {
@@ -335,7 +367,7 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
   });
   // Heights closer than 30 cm to one already shown would make the chain unreadable. Keep, in order:
   // ground and top, floor levels, then the other corners from low to high.
-  const floorsAt = levels.filter((lv) => lv.base > 0).map((lv) => lv.base);
+  const floorsAt = levels.filter((lv) => lv.base > 0 && !lv.open).map((lv) => lv.base);
   const rank = (h: number) => (h === 0 || h === top ? 0 : floorsAt.some((b) => Math.abs(b - h) < 1e-6) ? 1 : 2);
   const hs: number[] = [];
   for (const h of [...heights].filter((x) => x <= top + 1e-6).sort((a, b) => rank(a) - rank(b) || a - b)) {

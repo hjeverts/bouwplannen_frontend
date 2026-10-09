@@ -2,7 +2,7 @@ import { Component, computed, DestroyRef, ElementRef, inject, input, signal } fr
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Level } from '../geometry/building';
 import { FloorPlan } from '../geometry/floorplan';
-import { voidsFromAbove } from '../model/compute-plan';
+import { planContext, voidsFromAbove } from '../model/compute-plan';
 import { PrintService } from '../ui/print';
 import { safeFilename } from '../ui/transfer';
 import { cutawayView, elevationView, exteriorView, planView, Side, SIDE_LABELS } from './house-views';
@@ -126,15 +126,19 @@ export class HouseViewer {
   }
 
   private readonly fromAbove = computed(() => voidsFromAbove(this.levels(), this.levelId()));
+  private readonly context = computed(() => planContext(this.levels(), this.levelId()));
   private readonly planViewModel = computed(() =>
-    planView(this.plan(), { roomDims: this.roomDims(), fromAbove: this.fromAbove(), title: `Plattegrond ${this.itemName()}` }),
+    planView(this.plan(), { roomDims: this.roomDims(), fromAbove: this.fromAbove(), ...this.context(), title: `Plattegrond ${this.itemName()}` }),
   );
   protected readonly planSvg = computed(() => this.svg(this.planViewModel(), this.width()));
 
   private readonly view3d = computed<View>(() => {
     const cam = { azimuth: this.azimuth(), elevation: this.elevation() };
     const level = this.level();
-    if (this.mode() === 'binnen' && level) return cutawayView(level, cam, `${this.itemName()} van binnen`);
+    if (this.mode() === 'binnen' && level) {
+      const host = level.open ? this.levels().find((l) => l.id === level.below) : undefined;
+      return cutawayView(level, cam, `${this.itemName()} van binnen`, host);
+    }
     return exteriorView(this.levels().length ? this.levels() : [], cam, '3D');
   });
   protected readonly svg3d = computed(() => {
@@ -198,7 +202,7 @@ export class HouseViewer {
   /** A4 with the 3D view, the plan of this floor and the four elevations. */
   overview(withPlan: boolean): string {
     const view3d = exteriorView(this.levels(), { azimuth: -35, elevation: 25 }, '3D-overzicht');
-    const plan = withPlan ? planView(this.plan(), { roomDims: false, fromAbove: this.fromAbove(), title: `Plattegrond ${this.itemName()}` }) : null;
+    const plan = withPlan ? planView(this.plan(), { roomDims: false, fromAbove: this.fromAbove(), ...this.context(), title: `Plattegrond ${this.itemName()}` }) : null;
     // On the overview the elevations keep their main dimensions only, so they stay readable at 1:200.
     const elevations = SIDES.map((side) => elevationView(this.levels(), side, { chains: false }));
     const views = { view3d, plan, elevations };

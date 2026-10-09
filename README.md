@@ -26,7 +26,8 @@ Met **Plattegrond** voeg je de gemeten ruimtes samen tot één verdieping:
 - Een deur of raam in een muur tussen twee ruimtes zet je maar in één van de twee; hij komt vanzelf in beide (plattegrond, 3D, netto wandoppervlak).
 - **Buitenmaat-controle**: met de dikte van de buitenmuur rekent de app de buitenmaat uit en vergelijkt die met je gemeten breedte en diepte. Klopt het niet, dan zie je het verschil en hoe dik de buitenmuur dan zou zijn.
 - **Trapgat**: een gat in de vloer, gemeten in een ruimte vanaf een wand. Op die verdieping gekruist met maten, op de verdieping eronder gestippeld ("trap ↑"), in 3D als gat in de vloer.
-- **Verdiepingen**: geef aan op welke plattegrond een verdieping staat, met de vloerdikte en eventueel een verschuiving.
+- **Verdiepingen**: geef aan op welke plattegrond een verdieping staat, met de vloerdikte en eventueel een verschuiving. Hoe hoog de vloer ligt bepaalt de ruimte die eronder ligt (niet de hoogste ruimte van de hele verdieping), of je vult de hoogte zelf in.
+- **Vliering of entresol**: een verdieping **zonder wanden** in de ruimte eronder, over een deel ervan (bijvoorbeeld boven in de garage). Geen gevels of buitenmuren; standaard tegen de binnenkant van de muren eronder. In de plattegrond eronder gestippeld met de hoogte, in 3D van binnen op de juiste hoogte.
 - **Kappen**: een verdieping kan meerdere kappen hebben (elk een Dak & spant), over de hele verdieping of over de ruimtes die je aanvinkt, met de nok evenwijdig aan of haaks op de voorgevel. Zo krijgt een **uitbouw** een eigen lessenaarsdak; ruimtes zonder kap en zonder verdieping erboven krijgen een plat dak op hun eigen hoogte. Steekt een ruimte boven een lagere uit, dan komt het stuk muur erboven vanzelf in 3D en de gevels.
 - **Dakkapellen** (dakvlak, afstand vanaf de kopgevel, breedte, hoogte voorkant, terugligging vanaf de muurplaat, raam) en **dakramen** (dakvlak, afstand vanaf de kopgevel, afstand langs de helling vanaf de muurplaat, breedte, lengte). Met een waarschuwing als iets niet op het dakvlak past.
 - **Weergave**: plattegrond met muren, deuren (draairichting), ramen, kettingmaten en kap-omtrek; 3D van buiten (hele gebouw) of van binnen (verdieping opengewerkt); de vier **gevels** met maatvoering (kettingmaat per verdieping, peilmaten, goot en nok).
@@ -71,7 +72,7 @@ src/app/
 ```bash
 npm install --legacy-peer-deps   # npm 10 struikelt anders over een peer-dependency
 npm start                        # http://localhost:4200, /api gaat naar de backend op :5094
-npm test -- --watch=false        # Vitest, 157 tests
+npm test -- --watch=false        # Vitest, 160 tests
 npm run build                    # dist/bouwplannen-frontend/browser, statisch te hosten
 ```
 

@@ -19,6 +19,13 @@ export interface LevelInput {
   /** Shift relative to the floor below (outside of the walls, front-left corner). */
   dx: number;
   dy: number;
+  /**
+   * Height of the top of this floor above the floor below. When absent: the highest room under it
+   * plus the floor thickness.
+   */
+  floorHeight?: number | null;
+  /** A floor without walls (loft, mezzanine) inside the volume of the floor below. */
+  open?: boolean;
 }
 
 export interface Level {
@@ -34,6 +41,12 @@ export interface Level {
   number: number;
   /** Floor thickness of the level directly above, when there is one. */
   above: LevelInput | null;
+  /** Without walls (loft, mezzanine): no facades, it lies inside the floor below. */
+  open: boolean;
+  /** Floor thickness of this level (the slab it stands on). */
+  thickness: number;
+  /** The floor it stands on. */
+  below: string | null;
 }
 
 export interface P3 {
@@ -84,11 +97,46 @@ export function stackLevels(inputs: LevelInput[], focusId: string): Level[] {
     if (out.some((x) => x.id === l.id)) return;
     const storey = Math.max(0, ...l.plan.rooms.flatMap((r) => r.heights));
     const children = inputs.filter((c) => c.below === l.id && c.id !== l.id);
-    out.push({ id: l.id, name: l.name, plan: l.plan, base, storey, offset, number, above: children[0] ?? null });
-    for (const c of children) visit(c, base + storey + Math.max(0, c.floorThickness), { x: offset.x + c.dx, y: offset.y + c.dy }, number + 1);
+    out.push({
+      id: l.id,
+      name: l.name,
+      plan: l.plan,
+      base,
+      storey,
+      offset,
+      number,
+      above: children.find((c) => !c.open) ?? null,
+      open: !!l.open,
+      thickness: Math.max(0, l.floorThickness),
+      below: l.below && out.some((x) => x.id === l.below) ? l.below : null,
+    });
+    for (const c of children) {
+      const childOffset = { x: offset.x + c.dx, y: offset.y + c.dy };
+      const height = c.floorHeight ?? heightUnder(l.plan, offset, c.plan, childOffset) + Math.max(0, c.floorThickness);
+      visit(c, base + height, childOffset, number + 1);
+    }
   };
   visit(root, 0, { x: 0, y: 0 }, 0);
   return out.sort((a, b) => a.base - b.base || a.number - b.number);
+}
+
+/**
+ * Highest ceiling of the rooms of `below` that lie under the outline of `upper` (both with their
+ * offsets), so a floor over the low part of a building is not lifted to its highest room.
+ */
+export function heightUnder(below: FloorPlan, belowOffset: Point, upper: FloorPlan, upperOffset: Point): number {
+  const shift = { x: upperOffset.x - belowOffset.x, y: upperOffset.y - belowOffset.y };
+  const rings = upper.rooms.map((r) => r.points.map((p) => ({ x: p.x + shift.x, y: p.y + shift.y })));
+  const overlaps = (pts: Point[]) =>
+    rings.some((ring) => ring.some((p) => pointInPolygon(p, pts, -0.01)) || pts.some((p) => pointInPolygon(p, ring, -0.01)) || centreInside(pts, ring));
+  const under = below.rooms.filter((r) => overlaps(r.points));
+  const rooms = under.length ? under : below.rooms;
+  return Math.max(0, ...rooms.flatMap((r) => r.heights));
+}
+
+function centreInside(a: Point[], b: Point[]): boolean {
+  const c = { x: a.reduce((s, p) => s + p.x, 0) / a.length, y: a.reduce((s, p) => s + p.y, 0) / a.length };
+  return pointInPolygon(c, b);
 }
 
 const p3 = (p: Point, z: number, o: Point): P3 => ({ x: p.x + o.x, y: p.y + o.y, z });
@@ -172,7 +220,8 @@ function distanceToPolygon(p: Point, poly: Point[]): number {
 function topsOf(levels: Level[], lv: Level) {
   const plan = lv.plan;
   const grown = plan.rooms.map((r) => grow(r.points, plan.outerWall));
-  const above = levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base);
+  // A floor without walls (loft) lies inside this one: it does not cut the walls off.
+  const above = levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base && !l.open);
   /** Upper floors' outlines in this floor's coordinates. */
   const aboveRings = above.map((a) => ({
     level: a,
@@ -304,6 +353,7 @@ function dedupe(pts: P3[]): P3[] {
 export function exteriorFaces(levels: Level[]): Face[] {
   const faces: Face[] = [];
   levels.forEach((lv, li) => {
+    if (lv.open) return; // a loft inside the floor below: not seen from outside
     const { plan, offset } = lv;
     const tops = topsOf(levels, lv);
     const facades: Face[] = [];
@@ -385,7 +435,7 @@ export function exteriorFaces(levels: Level[]): Face[] {
       let area: MultiPolygon = intersection([toRing(tops.grown[ri])], footprintGeom as MultiPolygon);
       const others = plan.rooms.filter((x) => x.index !== ri && x.host !== ri).map((x) => [toRing(x.points)] as ClipPolygon);
       if (others.length) area = difference(area, ...others);
-      for (const above of levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base)) {
+      for (const above of levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base && !l.open)) {
         const shifted = above.plan.footprint.map((poly) => poly.map((ring) => toRing(ring.map((p) => ({ x: p.x + above.offset.x - lv.offset.x, y: p.y + above.offset.y - lv.offset.y })))));
         if (shifted.length) area = difference(area, shifted as MultiPolygon);
       }
@@ -453,6 +503,7 @@ export function cutawayFaces(level: Level, cut: number): Face[] {
   const { plan } = level;
   const o = { x: 0, y: 0 };
   const faces: Face[] = [];
+  if (level.open) return openFloorFaces(level);
   for (const r of plan.rooms) {
     const holes = plan.voids.filter((v) => v.room === r.index).map((v) => v.points.map((p) => p3(p, 0, o)));
     const floor = r.floor && r.floor.length ? r.floor : [r.points];
@@ -629,3 +680,46 @@ export function project(faces: Face[], cam: Camera): Projected[] {
   }
   return out;
 }
+
+/** A floor without walls (loft): the floor itself and the edge of its slab. */
+function openFloorFaces(level: Level): Face[] {
+  const { plan } = level;
+  const o = { x: 0, y: 0 };
+  const t = Math.max(0.05, level.thickness);
+  const faces: Face[] = [];
+  for (const r of plan.rooms) {
+    const holes = plan.voids.filter((v) => v.room === r.index).map((v) => v.points.map((p) => p3(p, 0, o)));
+    const floor = r.floor && r.floor.length ? r.floor : [r.points];
+    faces.push({
+      kind: 'floor',
+      pts: floor[0].map((p) => p3(p, 0, o)),
+      holes: [...floor.slice(1).map((ring) => ring.map((p) => p3(p, 0, o))), ...holes],
+      normal: { x: 0, y: 0, z: 1 },
+      decals: [],
+      level: 0,
+      layer: 1,
+    });
+  }
+  for (const poly of plan.footprint) {
+    poly.forEach((ring0, ri) => {
+      const ring = ringCcw(ring0, ri === 0);
+      for (let i = 0; i < ring.length; i++) {
+        const p = ring[i];
+        const q = ring[(i + 1) % ring.length];
+        const len = Math.hypot(q.x - p.x, q.y - p.y);
+        if (len < 1e-6) continue;
+        faces.push({
+          kind: 'facade',
+          pts: [p3(p, -t, o), p3(q, -t, o), p3(q, 0, o), p3(p, 0, o)],
+          holes: [],
+          normal: { x: (q.y - p.y) / len, y: -(q.x - p.x) / len, z: 0 },
+          decals: [],
+          level: 0,
+          layer: 0,
+        });
+      }
+    });
+  }
+  return faces;
+}
+

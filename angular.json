@@ -45,9 +45,13 @@
               "outputHashing": "all",
               "optimization": {
                 "scripts": true,
-                "styles": { "minify": true, "inlineCritical": false },
+                "styles": {
+                  "minify": true,
+                  "inlineCritical": false
+                },
                 "fonts": false
-              }
+              },
+              "serviceWorker": "ngsw-config.json"
             },
             "development": {
               "optimization": false,
@@ -67,7 +71,10 @@
               "buildTarget": "bouwplannen-frontend:build:development"
             }
           },
-          "defaultConfiguration": "development"
+          "defaultConfiguration": "development",
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          }
         },
         "test": {
           "builder": "@angular/build:unit-test"

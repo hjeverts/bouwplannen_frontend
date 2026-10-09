@@ -2,12 +2,16 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { parseImport, toJson } from '../model/export';
 import { KIND_LABELS, Project } from '../model/models';
 import { ProjectStore } from '../model/project-store';
-import { SyncPanel } from '../sync/sync-panel';
+import { AccountPanel } from '../account/account-panel';
+import { GroupSelect } from '../account/group-select';
+import { GroupsPanel } from '../account/groups-panel';
+import { AuthService } from '../api/auth.service';
+import { SyncService } from '../sync/sync.service';
 import { ExportOption, ExportPanel } from '../ui/export-panel';
 
 @Component({
   selector: 'app-project-list',
-  imports: [ExportPanel, SyncPanel],
+  imports: [ExportPanel, AccountPanel, GroupsPanel, GroupSelect],
   template: `
     <section class="page">
       <form class="create" (submit)="create($event)">
@@ -15,6 +19,9 @@ import { ExportOption, ExportPanel } from '../ui/export-panel';
           <span class="field-label">Nieuw project</span>
           <input id="new-project" type="text" placeholder="bijv. Schuur achtertuin" [value]="newName()" (input)="newName.set($any($event.target).value)" />
         </label>
+        @if (auth.loggedIn()) {
+          <app-group-select label="In groep" [value]="newGroup() ?? auth.me()?.personalGroupId" (changed)="newGroup.set($event)" />
+        }
         <button type="submit" class="btn btn--primary">Project maken</button>
       </form>
 
@@ -38,18 +45,40 @@ import { ExportOption, ExportPanel } from '../ui/export-panel';
                 <span class="project-name">{{ p.name }}</span>
                 <span class="project-meta">{{ summary(p) }}</span>
                 <span class="project-date">{{ date(p.updated) }}</span>
+                @if (auth.loggedIn()) {
+                  <span class="project-group">
+                    @switch (sync.blocked()[p.id]) {
+                      @case ('geen-groep') {
+                        <span class="chip chip--warn">Kies een groep om te delen</span>
+                      }
+                      @case ('geen-toegang') {
+                        <span class="chip chip--warn">Geen toegang tot de groep</span>
+                      }
+                      @default {
+                        <span class="chip">{{ groupLabel(p.groupId) }}</span>
+                      }
+                    }
+                  </span>
+                }
               </button>
             </li>
           }
         </ul>
       }
 
-      <app-sync-panel />
+      <app-account-panel (showLogin)="auth.skipLogin.set(false)" />
+      @if (auth.loggedIn()) {
+        <app-groups-panel />
+      }
 
       <details class="more">
         <summary>Back-up en importeren</summary>
         <p class="hint">
-          Projecten staan alleen in deze browser op dit apparaat. Maak geregeld een back-up, of zet ze zo over naar een ander apparaat.
+          @if (auth.loggedIn()) {
+            Je projecten staan op de server en op dit apparaat. Een back-up hier bevat alles wat op dit apparaat staat.
+          } @else {
+            Projecten staan alleen in deze browser op dit apparaat. Maak geregeld een back-up, of zet ze zo over naar een ander apparaat.
+          }
         </p>
         <app-export-panel [options]="backup()" />
         <div class="import">
@@ -72,8 +101,12 @@ import { ExportOption, ExportPanel } from '../ui/export-panel';
 })
 export class ProjectList {
   protected readonly store = inject(ProjectStore);
+  protected readonly auth = inject(AuthService);
+  protected readonly sync = inject(SyncService);
   protected readonly projects = this.store.projects;
   protected readonly newName = signal('');
+  /** Group for a new project; defaults to your private group. */
+  protected readonly newGroup = signal<string | undefined>(undefined);
   protected readonly pasted = signal('');
   protected readonly importMessage = signal<string | null>(null);
   protected readonly importFailed = signal(false);
@@ -90,7 +123,8 @@ export class ProjectList {
 
   protected create(event: Event): void {
     event.preventDefault();
-    this.store.createProject(this.newName());
+    const group = this.auth.loggedIn() ? (this.newGroup() ?? this.auth.me()?.personalGroupId) : undefined;
+    this.store.createProject(this.newName(), group);
     this.newName.set('');
   }
 
@@ -99,6 +133,11 @@ export class ProjectList {
     const counts = new Map<string, number>();
     for (const i of p.items) counts.set(KIND_LABELS[i.kind], (counts.get(KIND_LABELS[i.kind]) ?? 0) + 1);
     return [...counts].map(([k, n]) => (n > 1 ? `${n}× ${k.toLowerCase()}` : k.toLowerCase())).join(' · ');
+  }
+
+  protected groupLabel(groupId: string | undefined): string {
+    const g = this.auth.groups().find((x) => x.id === groupId);
+    return !g ? 'Alleen op dit apparaat' : g.personal ? 'Privé' : g.name;
   }
 
   protected date(iso: string): string {

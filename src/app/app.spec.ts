@@ -1,9 +1,17 @@
 import { TestBed } from '@angular/core/testing';
 import { App } from './app';
+import { API_FETCH } from './api/api-client';
 import { DakItem, HoekItem, VormItem } from './model/models';
 import { ProjectStore } from './model/project-store';
 import { MemoryProjectStorage, PROJECT_STORAGE } from './model/storage';
 import { exampleProject } from './pages/project-list';
+
+/** Let pending promises (fetch answers) finish, then update the view. */
+async function settle(fixture: { detectChanges(): void; whenStable(): Promise<unknown> }) {
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+  await fixture.whenStable();
+  fixture.detectChanges();
+}
 
 describe('App', () => {
   let storage: MemoryProjectStorage;
@@ -12,7 +20,11 @@ describe('App', () => {
     storage = new MemoryProjectStorage();
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [{ provide: PROJECT_STORAGE, useValue: storage }],
+      providers: [
+        { provide: PROJECT_STORAGE, useValue: storage },
+        // No Bouwplannen server in these tests: the app works on this device only.
+        { provide: API_FETCH, useValue: async () => new Response('niet gevonden', { status: 404 }) },
+      ],
     }).compileComponents();
   });
 
@@ -113,5 +125,58 @@ describe('App', () => {
     await fixture.whenStable();
     expect((store.currentItem() as HoekItem).c).toBe('1,4142');
     expect(el.querySelector('.result--main dd')?.textContent).toContain('90,00°');
+  });
+
+  it('with a server and no session: login page first, can continue without login, can log in', async () => {
+    let loggedIn = false;
+    const me = { id: 'u-hans', username: 'hans', displayName: 'Hans', isAdmin: true, personalGroupId: 'p-hans', groups: [{ id: 'p-hans', name: 'Privé', personal: true, isOwner: true, memberCount: 1 }] };
+    TestBed.overrideProvider(API_FETCH, {
+      useValue: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/auth/login') {
+          const body = JSON.parse(String(init?.body));
+          if (body.password !== 'goed-wachtwoord') return new Response(JSON.stringify({ title: 'Gebruikersnaam of wachtwoord klopt niet.' }), { status: 401 });
+          loggedIn = true;
+          return new Response(JSON.stringify(me), { status: 200 });
+        }
+        if (path === '/api/auth/me') return loggedIn ? new Response(JSON.stringify(me), { status: 200 }) : new Response(null, { status: 401 });
+        if (path.startsWith('/api/projects')) return new Response(JSON.stringify({ serverTime: '1', projects: [], groupIds: ['p-hans'], removed: [] }), { status: 200 });
+        return new Response(null, { status: 404 });
+      },
+    });
+    const { fixture, el } = render();
+    await settle(fixture);
+    expect(el.querySelector('app-login-page')).not.toBeNull();
+
+    const type = (sel: string, value: string) => {
+      const input = el.querySelector<HTMLInputElement>(sel)!;
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    };
+    type('#login-user', 'hans');
+    type('#login-pass', 'fout');
+    fixture.detectChanges();
+    el.querySelector<HTMLFormElement>('.login-form')!.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+    expect(el.querySelector('.login .status--error')?.textContent).toContain('klopt niet');
+
+    type('#login-pass', 'goed-wachtwoord');
+    fixture.detectChanges();
+    el.querySelector<HTMLFormElement>('.login-form')!.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+    expect(el.querySelector('app-login-page')).toBeNull();
+    expect(el.querySelector('.sync-chip')?.textContent).toContain('Hans');
+    // New projects default to the private group.
+    expect(el.querySelector('app-group-select select')).not.toBeNull();
+  });
+
+  it('continue without logging in shows the projects', async () => {
+    TestBed.overrideProvider(API_FETCH, { useValue: async () => new Response(null, { status: 401 }) });
+    const { fixture, el } = render();
+    await settle(fixture);
+    (el.querySelector('.login-skip') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(el.querySelector('app-login-page')).toBeNull();
+    expect(el.textContent).toContain('Nog geen projecten');
   });
 });

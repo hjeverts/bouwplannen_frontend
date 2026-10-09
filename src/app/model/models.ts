@@ -110,6 +110,8 @@ export interface Project {
   name: string;
   created: string;
   updated: string;
+  /** Group on the server whose members share this project. Empty: only on this device. */
+  groupId?: string;
   items: Item[];
 }
 

@@ -20,15 +20,20 @@ Invoer accepteert `3,456`, `3.456`, `345,6 cm` en `3456 mm`. Export naar JSON (b
 
 Liggen alle hoogtes in één vlak (vlak plafond, lessenaarsdak), dan is de inhoud exact. Bij meerdere vlakken (nok, ook uit het midden) wordt het plafond behandeld als dakvorm: de triangulatie met de grootste inhoud, wat voor zadel- en schilddaken precies het dak is zolang elk nokuiteinde een hoekpunt is. De uitkomst staat dan als "Inhoud (dakvorm)".
 
-## Synchroniseren
+## Inloggen, groepen en synchroniseren
 
-Onder **Projecten → Synchroniseren met server** vul je het adres van de backend en de API-sleutel in. Daarna:
+Draait de app via de eigen server (zie de deploy-repo), dan log je in met een account dat de beheerder op de server aanmaakt. Daarna:
 
-- blijft alles ook lokaal staan; zonder verbinding werk je gewoon door;
-- haalt de app eerst op wat elders is gewijzigd (`?since=`), en stuurt daarna de eigen wijzigingen met `If-Match`;
-- wint bij een conflict per project de **meest recente bewerking**; verwijderen gaat ook mee, maar een bewerking elders na jouw verwijdering wint.
+- Elk project hoort bij een **groep**: je **privégroep** (alleen jij) of een gedeelde groep. Bij een nieuw project kies je de groep; in het project kun je het later naar een andere groep verplaatsen.
+- Onder **Groepen** maak je groepen aan, voeg je leden toe op gebruikersnaam, maak je iemand beheerder van de groep, of verlaat je een groep.
+- Alles blijft ook op het apparaat staan; zonder verbinding werk je gewoon door. De app haalt eerst op wat in je groepen veranderde (`?since=`) en stuurt dan je eigen wijzigingen met `If-Match`. Bij een conflict wint per project de meest recente bewerking.
+- Projecten die alleen op het apparaat staan (bijvoorbeeld van vóór het inloggen) krijgen de melding **Kies een groep om te delen**.
+- Inloggen gebeurt één keer per apparaat; de login (een cookie die scripts niet kunnen lezen) blijft 90 dagen geldig zolang je de app gebruikt. Onder **Account** wijzig je je wachtwoord of log je overal uit.
+- Zonder server (bijvoorbeeld als los bestand geopend) werkt alles op het apparaat zelf.
 
-De backend moet de frontend-origin toestaan (`Cors__AllowedOrigins__0`). Draai beide achter HTTPS.
+### Installeren als app
+
+De app heeft een web-app-manifest, iconen tot 512 px (ook *maskable* voor Android) en een service worker. In Chrome op Android kies je **Toevoegen aan startscherm** of **App installeren**; op een iPad of iPhone in Safari **Zet op beginscherm**. De app opent dan zonder adresbalk en start ook zonder verbinding.
 
 ## Opbouw
 
@@ -36,7 +41,9 @@ De backend moet de frontend-origin toestaan (`Cors__AllowedOrigins__0`). Draai b
 src/app/
   geometry/   pure rekenkern (geen Angular): hoeken, driehoeken, vormen, daken, ruimtes
   model/      datamodel, berekeningen per onderdeel, opslag, export
-  sync/       synchronisatie met de backend (offline first)
+  api/        API-client, inloggen, groepen
+  account/    loginscherm, account, groepen, groepkeuze
+  sync/       synchronisatie met de backend (offline first, per gebruiker)
   drawing/    plattegrond/doorsnede (SVG) en 3D-weergave (SVG, geen extra bibliotheek)
   editors/    één component per soort onderdeel
   pages/      projectlijst en projectscherm
@@ -47,8 +54,8 @@ src/app/
 
 ```bash
 npm install --legacy-peer-deps   # npm 10 struikelt anders over een peer-dependency
-npm start                        # http://localhost:4200
-npm test -- --watch=false        # Vitest, 106 tests
+npm start                        # http://localhost:4200, /api gaat naar de backend op :5094
+npm test -- --watch=false        # Vitest, 111 tests
 npm run build                    # dist/bouwplannen-frontend/browser, statisch te hosten
 ```
 

@@ -1,4 +1,6 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
+import { LoginPage } from './account/login-page';
+import { AuthService } from './api/auth.service';
 import { ProjectStore } from './model/project-store';
 import { SyncService } from './sync/sync.service';
 import { ProjectList } from './pages/project-list';
@@ -6,7 +8,7 @@ import { ProjectView } from './pages/project-view';
 
 @Component({
   selector: 'app-root',
-  imports: [ProjectList, ProjectView],
+  imports: [ProjectList, ProjectView, LoginPage],
   template: `
     <header class="topbar">
       <button type="button" class="brand" (click)="store.openProject(null)" aria-label="Naar alle projecten">
@@ -23,15 +25,18 @@ import { ProjectView } from './pages/project-view';
           <span class="crumb crumb--current">{{ p.name }}</span>
         </nav>
       }
-      @if (sync.settings().enabled) {
+      @if (auth.loggedIn()) {
         <span class="sync-chip" [title]="sync.message() ?? ''" role="status">
-          <span class="sync-dot sync-dot--{{ sync.status() }}" aria-hidden="true"></span>
-          {{ chip() }}
+          <span class="sync-dot sync-dot--{{ auth.offline() ? 'offline' : sync.status() }}" aria-hidden="true"></span>
+          <span class="sync-user">{{ auth.me()?.displayName }}</span>
+          <span class="sync-text">· {{ chip() }}</span>
         </span>
       }
     </header>
     <main class="main">
-      @if (store.currentProject()) {
+      @if (showLogin()) {
+        <app-login-page (skip)="auth.skipLogin.set(true)" />
+      } @else if (store.currentProject()) {
         <app-project-view />
       } @else {
         <app-project-list />
@@ -41,20 +46,27 @@ import { ProjectView } from './pages/project-view';
 })
 export class App {
   protected readonly store = inject(ProjectStore);
+  protected readonly auth = inject(AuthService);
   /** Created here so syncing runs from the start, whichever page is open. */
   protected readonly sync = inject(SyncService);
+  protected readonly showLogin = computed(() => this.auth.state() === 'uitgelogd' && !this.auth.skipLogin());
+
+  constructor() {
+    void this.auth.check();
+  }
 
   protected chip(): string {
     const pending = this.sync.pending();
     switch (this.sync.status()) {
       case 'bezig':
-        return 'Synchroniseren…';
+        return 'synchroniseren…';
       case 'offline':
-        return pending ? `Offline · ${pending} wacht` : 'Offline';
+        return pending ? `offline · ${pending} wacht` : 'offline';
       case 'fout':
-        return 'Sync-fout';
+        return 'sync-fout';
       default:
-        return pending ? `${pending} te verzenden` : 'Gesynchroniseerd';
+        if (this.auth.offline()) return pending ? `offline · ${pending} wacht` : 'offline';
+        return pending ? `${pending} te verzenden` : 'bijgewerkt';
     }
   }
 }

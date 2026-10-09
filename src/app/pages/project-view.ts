@@ -7,12 +7,15 @@ import { VormEditor } from '../editors/vorm-editor';
 import { outlineOf, outlineToDxf, projectToCsv, summarize, toJson } from '../model/export';
 import { Item, ItemKind, KIND_HINTS, KIND_LABELS } from '../model/models';
 import { ProjectStore } from '../model/project-store';
+import { GroupSelect } from '../account/group-select';
+import { AuthService } from '../api/auth.service';
+import { SyncService } from '../sync/sync.service';
 import { ExportOption, ExportPanel } from '../ui/export-panel';
 import { safeFilename } from '../ui/transfer';
 
 @Component({
   selector: 'app-project-view',
-  imports: [HoekEditor, DriehoekEditor, VormEditor, DakEditor, MatenEditor, ExportPanel],
+  imports: [HoekEditor, DriehoekEditor, VormEditor, DakEditor, MatenEditor, ExportPanel, GroupSelect],
   template: `
     @if (project(); as p) {
       <div class="workspace" [class.workspace--item]="!!item()">
@@ -21,6 +24,18 @@ import { safeFilename } from '../ui/transfer';
             <span class="field-label">Project</span>
             <input id="project-name" type="text" [value]="p.name" (change)="store.renameProject(p.id, $any($event.target).value)" />
           </label>
+
+          @if (auth.loggedIn()) {
+            <app-group-select label="Gedeeld in groep" [value]="p.groupId" (changed)="store.setProjectGroup(p.id, $event)" />
+            @switch (sync.blocked()[p.id]) {
+              @case ('geen-groep') {
+                <p class="status status--error">Dit project staat alleen op dit apparaat. Kies een groep om het op te slaan en te delen.</p>
+              }
+              @case ('geen-toegang') {
+                <p class="status status--error">Je bent geen lid (meer) van deze groep. Kies een andere groep om je wijzigingen te bewaren.</p>
+              }
+            }
+          }
 
           @if (p.items.length > 0) {
             <ul class="items">
@@ -123,6 +138,8 @@ import { safeFilename } from '../ui/transfer';
 })
 export class ProjectView {
   protected readonly store = inject(ProjectStore);
+  protected readonly auth = inject(AuthService);
+  protected readonly sync = inject(SyncService);
   protected readonly project = this.store.currentProject;
   protected readonly item = this.store.currentItem;
   protected readonly labels = KIND_LABELS;

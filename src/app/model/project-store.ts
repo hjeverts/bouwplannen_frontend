@@ -58,9 +58,10 @@ export class ProjectStore {
     this.currentItemId.set(id);
   }
 
-  createProject(name: string): Project {
+  createProject(name: string, groupId?: string): Project {
     const now = new Date().toISOString();
     const project: Project = { id: newId(), name: name.trim() || 'Nieuw project', created: now, updated: now, items: [] };
+    if (groupId) project.groupId = groupId;
     this.commit([project, ...this.projects()]);
     this.notify({ type: 'upsert', id: project.id });
     this.openProject(project.id);
@@ -69,6 +70,17 @@ export class ProjectStore {
 
   renameProject(id: string, name: string): void {
     this.updateProject(id, (p) => ({ ...p, name }));
+  }
+
+  /** Put the project in another group (shares it with that group's members). */
+  setProjectGroup(id: string, groupId: string): void {
+    this.updateProject(id, (p) => ({ ...p, groupId }));
+  }
+
+  /** Remove every project from this device without reporting deletions (used when logging out with "wipe"). */
+  clearLocal(): void {
+    this.commit([]);
+    this.openProject(null);
   }
 
   deleteProject(id: string): void {

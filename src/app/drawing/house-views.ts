@@ -282,14 +282,15 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
       if (!hidden) heights.add(Math.round(p.y * 1e4) / 1e4);
     }
   });
-  // Heights closer than 10 cm to the previous one would only clutter the chain.
+  // Heights closer than 30 cm to one already shown would make the chain unreadable. Keep, in order:
+  // ground and top, floor levels, then the other corners from low to high.
+  const floorsAt = levels.filter((lv) => lv.base > 0).map((lv) => lv.base);
+  const rank = (h: number) => (h === 0 || h === top ? 0 : floorsAt.some((b) => Math.abs(b - h) < 1e-6) ? 1 : 2);
   const hs: number[] = [];
-  for (const h of [...heights].filter((x) => x <= top + 1e-6).sort((a, b) => a - b)) {
-    if (!hs.length || h - hs[hs.length - 1] > 0.1 || h === top) {
-      if (hs.length && h - hs[hs.length - 1] <= 0.1) hs.pop();
-      hs.push(h);
-    }
+  for (const h of [...heights].filter((x) => x <= top + 1e-6).sort((a, b) => rank(a) - rank(b) || a - b)) {
+    if (rank(h) === 0 || hs.every((k) => Math.abs(k - h) >= 0.29)) hs.push(h);
   }
+  hs.sort((a, b) => a - b);
   const xr = roofMax;
   if (hs.length > 2) {
     for (let i = 0; i + 1 < hs.length; i++) {

@@ -3,9 +3,10 @@ import { HouseViewer } from '../drawing/house-viewer';
 import { formatArea, formatLength, formatMm, formatVolume } from '../geometry/units';
 import { computeDak, computeVorm } from '../model/compute';
 import { computeBuilding, computePlattegrond, possibleBelow } from '../model/compute-plan';
-import { DakItem, PlanRoomEntry, PlattegrondItem, VoidEntry, VormItem } from '../model/models';
+import { DakItem, PlanRoomEntry, PlattegrondItem, RoofEntry, roofEntries, VoidEntry, VormItem } from '../model/models';
 import { ProjectStore } from '../model/project-store';
 import { MeasureField } from '../ui/measure-field';
+import { RoofsPanel } from './roofs-panel';
 import { ResultRow, Results } from '../ui/results';
 
 interface RoomChoice {
@@ -16,7 +17,7 @@ interface RoomChoice {
 
 @Component({
   selector: 'app-plattegrond-editor',
-  imports: [MeasureField, Results, HouseViewer],
+  imports: [MeasureField, Results, HouseViewer, RoofsPanel],
   template: `
     <p class="lead">
       Meet eerst elke ruimte als <strong>Vorm</strong>, met hoogte en deuren en ramen. Hier leg je ze tegen elkaar: kies per ruimte tegen welke
@@ -141,6 +142,7 @@ interface RoomChoice {
         <app-measure-field label="Dikte buitenmuur" [value]="item().outerWall" (valueChange)="set('outerWall', $event)" hint="Inclusief spouw en isolatie" />
         <app-measure-field label="Gemeten breedte voorgevel" [value]="item().measuredWidth" (valueChange)="set('measuredWidth', $event)" hint="Buitenwerks, links–rechts" />
         <app-measure-field label="Gemeten diepte" [value]="item().measuredDepth" (valueChange)="set('measuredDepth', $event)" hint="Buitenwerks, voor–achter" />
+        <app-measure-field label="Dikte plat dak" [value]="item().flatThickness ?? ''" (valueChange)="set('flatThickness', $event)" placeholder="0,300" hint="Boven ruimtes zonder kap of verdieping" />
       </div>
       <button type="button" class="btn btn--quiet" (click)="set('turn', (item().turn + 1) % 4)">Plattegrond een kwartslag draaien ↻</button>
       <p class="hint">De onderkant van de plattegrond is de voorgevel.</p>
@@ -166,33 +168,9 @@ interface RoomChoice {
       </div>
     </details>
 
-    <details class="more" [open]="!!item().roofId">
-      <summary>Kap</summary>
-      @if (roofs().length === 0) {
-        <p class="hint">Voeg een Dak & spant toe om een kap op deze verdieping te zetten.</p>
-      } @else {
-        <div class="fields fields--3">
-          <label class="field field--text">
-            <span class="field-label">Kap op deze verdieping</span>
-            <select [value]="item().roofId" (change)="set('roofId', $any($event.target).value)">
-              <option value="">Geen (plat)</option>
-              @for (d of roofs(); track d.id) {
-                <option [value]="d.id" [selected]="d.id === item().roofId">{{ d.name }}</option>
-              }
-            </select>
-          </label>
-          @if (item().roofId && !roofFromFloor()) {
-            <app-measure-field label="Hoogte muurplaat" [value]="item().plateHeight" (valueChange)="set('plateHeight', $event)" [placeholder]="platePlaceholder()" hint="Vanaf deze vloer; leeg = hoogste ruimte" />
-          }
-        </div>
-        @if (item().roofId) {
-          <div class="segmented" role="radiogroup" aria-label="Richting van de nok">
-            <button type="button" role="radio" [attr.aria-checked]="item().ridge === 'x'" (click)="set('ridge', 'x')">Nok evenwijdig aan voorgevel</button>
-            <button type="button" role="radio" [attr.aria-checked]="item().ridge === 'y'" (click)="set('ridge', 'y')">Nok van voor naar achter</button>
-          </div>
-          <label class="check"><input type="checkbox" [checked]="item().roofFlip" (change)="set('roofFlip', !item().roofFlip)" /> Kap omdraaien (links en rechts van de spant wisselen)</label>
-        }
-      }
+    <details class="more" [open]="roofList().length > 0">
+      <summary>Kap, dakkapellen en dakramen</summary>
+      <app-roofs-panel [entries]="roofList()" [rooms]="placedRooms()" [daks]="roofs()" [plan]="plan()" [info]="result()" (changed)="setRoofs($event)" />
     </details>
 
     <app-results [rows]="rows()" [message]="message()" [state]="outcome().status" />
@@ -239,15 +217,12 @@ export class PlattegrondEditor {
     return o.status === 'ok' ? null : o.message;
   });
 
-  protected readonly roofFromFloor = computed(() => {
-    const dak = this.roofs().find((d) => d.id === this.item().roofId);
-    const r = dak ? computeDak(dak) : null;
-    return r?.status === 'ok' ? r.value.roof.fromFloor : false;
-  });
-  protected readonly platePlaceholder = computed(() => {
-    const v = this.result();
-    return v?.plateHeightAssumed && v.plateHeight !== null ? formatLength(v.plateHeight).replace(' m', '') : '';
-  });
+  protected readonly roofList = computed(() => roofEntries(this.item()));
+
+  protected setRoofs(roofs: RoofEntry[]): void {
+    // The list replaces the single roof of older items.
+    this.changed.emit({ ...this.item(), roofs, roofId: '' });
+  }
 
   protected choicesFor(i: number): RoomChoice[] {
     const current = this.item().rooms[i]?.roomId;
@@ -324,11 +299,14 @@ export class PlattegrondEditor {
     };
     dim('Breedte', p.width);
     dim('Diepte', p.depth);
-    if (p.roof) {
-      rows.push({ label: 'Nok boven deze vloer', value: formatLength(p.roof.ridgeHeight) });
-      if (p.roof.lengthDiff !== null && Math.abs(p.roof.lengthDiff) > 0.01) {
-        rows.push({ label: 'Gebouw langer dan daklengte', value: formatMm(p.roof.lengthDiff), tone: 'warn' });
+    for (const roof of p.roofs) {
+      const name = p.roofs.length > 1 ? ` (${roof.name})` : '';
+      rows.push({ label: `Nok boven deze vloer${name}`, value: formatLength(roof.ridgeHeight) });
+      if (roof.lengthDiff !== null && Math.abs(roof.lengthDiff) > 0.01) {
+        rows.push({ label: `Lengte eronder min daklengte${name}`, value: formatMm(roof.lengthDiff), tone: 'warn' });
       }
+      if (roof.dormers.length) rows.push({ label: `Dakkapellen${name}`, value: String(roof.dormers.length) });
+      if (roof.windows.length) rows.push({ label: `Dakramen${name}`, value: String(roof.windows.length) });
     }
     const level = this.levels().find((l) => l.id === this.item().id);
     if (level && level.base > 0) rows.push({ label: 'Vloer boven begane grond', value: formatLength(level.base) });

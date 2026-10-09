@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cutawayFaces, exteriorFaces, faceNormal, project, stackLevels, viewDirection } from '../geometry/building';
+import { buildFloorPlan, PlanRoomInput } from '../geometry/floorplan';
+import { roofSection } from '../geometry/geometry';
 import { computeBuilding, computePlattegrond, voidsFromAbove } from '../model/compute-plan';
 import { exampleHouse } from '../model/examples';
 import { PlattegrondItem } from '../model/models';
@@ -27,7 +29,13 @@ describe('example house', () => {
     expect(g.plan.width.computed).toBeCloseTo(8.8, 6);
     expect(g.plan.width.diff).toBeCloseTo(0.01, 6); // measured 8,810: 10 mm more
     expect(g.plan.depth.diff).toBeCloseTo(0, 6);
-    expect(g.plan.netArea).toBeCloseTo(37 + 3.1 * 3.7 + 3.1 * 3.6, 6);
+    expect(g.plan.depth.computed).toBeCloseTo(0.3 + 7.4 + 0.3 + 3 + 0.3, 6); // house, old back wall, extension
+    expect(g.plan.netArea).toBeCloseTo(37 + 3.1 * 3.7 + 3.1 * 3.6 + 15, 6);
+    // The extension has its own lean-to, the rest of the ground floor carries the upper floor.
+    expect(g.plan.roofs).toHaveLength(1);
+    const ext = g.plan.rooms.find((r) => r.name === 'Uitbouw')!;
+    expect(g.plan.roomRoof[ext.index]).toBe(0);
+    expect(g.plan.roomRoof.filter((x) => x === null)).toHaveLength(3);
     // Doors between the hall and the other rooms show up on both sides.
     const doors = g.plan.openings.filter((o) => o.door && !o.exterior);
     expect(doors.map((d) => d.name).sort()).toEqual(['deur keuken', 'deur woonkamer']);
@@ -41,6 +49,20 @@ describe('example house', () => {
     expect(u.plan.roof!.ridgeHeight).toBeCloseTo(2.5 + 4, 6); // plate at the highest room, 45° over 8 m
     expect(u.plateHeightAssumed).toBe(true);
     expect(u.plan.roof!.spanDiff).toBeCloseTo(0, 6);
+    expect(u.plan.roof!.planes.map((p) => p.label)).toEqual(['voor', 'achter']);
+    expect(u.plan.roof!.dormers).toHaveLength(1);
+    expect(u.plan.roof!.windows).toHaveLength(1);
+  });
+
+  it('still reads floor plans saved with a single roof', () => {
+    const old: PlattegrondItem = { ...upper, roofs: undefined, roofId: 'vw-kap', ridge: 'x', roofFlip: false, plateHeight: '' };
+    const r = computePlattegrond(old, house.items);
+    expect(r.status).toBe('ok');
+    if (r.status === 'ok') {
+      expect(r.value.plan.roofs).toHaveLength(1);
+      expect(r.value.plan.roof!.ridgeHeight).toBeCloseTo(6.5, 6);
+      expect(r.value.plan.roof!.dormers).toHaveLength(0);
+    }
   });
 
   it('stacks the floors with the floor thickness in between', () => {
@@ -65,27 +87,36 @@ describe('3D model', () => {
   it('has facades on every side of both floors, roof planes and windows on the facades', () => {
     const faces = exteriorFaces(levels);
     const facades = faces.filter((f) => f.kind === 'facade');
-    expect(facades.length).toBe(8); // rectangular house, two floors
-    expect(faces.filter((f) => f.kind === 'roof')).toHaveLength(2);
+    // Upper floor: four sides. Ground floor: outline of house plus extension, and the old back wall
+    // rising above the lean-to.
+    expect(facades.filter((f) => f.level === 1)).toHaveLength(4);
+    expect(facades.filter((f) => f.level === 0).length).toBeGreaterThanOrEqual(6);
+    expect(faces.filter((f) => f.kind === 'roof')).toHaveLength(3); // gable roof + lean-to
+    expect(faces.filter((f) => f.kind === 'dormer')).toHaveLength(3); // front and two cheeks
     const decals = facades.flatMap((f) => f.decals);
     const exterior = levels.flatMap((l) => l.plan.openings.filter((o) => o.exterior));
     expect(decals).toHaveLength(exterior.length);
+    // Roof window on the front plane, window in the dormer.
+    expect(faces.filter((f) => f.kind === 'roof').flatMap((f) => f.decals).map((d) => d.name)).toEqual(['dakraam']);
+    expect(faces.filter((f) => f.kind === 'dormer').flatMap((f) => f.decals)).toHaveLength(1);
     // Gable walls of the upper floor reach the ridge.
     const top = Math.max(...facades.flatMap((f) => f.pts.map((p) => p.z)));
     expect(top).toBeCloseTo(2.9 + 6.5, 6);
-    // Facade normals point outwards: away from the middle of the building.
-    for (const f of facades) {
+    // Facade normals of the upper floor point outwards: away from the middle of the house.
+    for (const f of facades.filter((x) => x.level === 1)) {
       const c = f.pts.reduce((s, p) => ({ x: s.x + p.x / f.pts.length, y: s.y + p.y / f.pts.length }), { x: 0, y: 0 });
       expect((c.x - 4.4) * f.normal.x + (c.y - 4) * f.normal.y).toBeGreaterThan(0);
     }
+
   });
 
   it('shows only faces turned to the camera, back to front', () => {
     const faces = exteriorFaces(levels);
     const front = project(faces, { azimuth: 0, elevation: 0 });
-    // Seen straight from the front: two front facades (and their windows), the front roof plane.
-    expect(front.filter((f) => f.kind === 'facade')).toHaveLength(2);
-    expect(front.filter((f) => f.kind === 'roof')).toHaveLength(1);
+    // Seen straight from the front: front facades of both floors, the front roof plane (and the
+    // lean-to behind, hidden by the house but not culled: it faces up).
+    expect(front.filter((f) => f.kind === 'facade' && f.level === 1)).toHaveLength(1);
+    expect(front.filter((f) => f.kind === 'roof').length).toBeGreaterThanOrEqual(1);
     const dir = viewDirection({ azimuth: 0, elevation: 0 });
     expect(dir.y).toBeCloseTo(-1, 9);
     // Roof planes come after the walls they overhang.
@@ -96,9 +127,9 @@ describe('3D model', () => {
   it('builds a cut-away of one floor with holes for the doors', () => {
     const faces = cutawayFaces(levels[0], 2.4);
     const inner = faces.filter((f) => f.kind === 'inner');
-    expect(inner).toHaveLength(12);
+    expect(inner).toHaveLength(16); // four rooms
     expect(inner.reduce((s, f) => s + f.holes.length, 0)).toBeGreaterThanOrEqual(7);
-    expect(faces.find((f) => f.kind === 'cap')!.holes).toHaveLength(3);
+    expect(faces.find((f) => f.kind === 'cap')!.holes).toHaveLength(4);
   });
 
   it('computes normals with Newell', () => {
@@ -120,6 +151,130 @@ describe('3D model', () => {
       'a',
     );
     expect(loop.length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('extensions, dormers and roof windows', () => {
+  const rect = (w: number, d: number) => [
+    { x: 0, y: 0 },
+    { x: w, y: 0 },
+    { x: w, y: d },
+    { x: 0, y: d },
+  ];
+  const room = (id: string, w: number, d: number, h: number, link: PlanRoomInput['link'] = null): PlanRoomInput => ({
+    id,
+    name: id,
+    points: rect(w, d),
+    heights: [h, h, h, h],
+    openings: [],
+    volume: null,
+    mirror: false,
+    link,
+  });
+  // A tall barn (4 m) with a low extension (2,6 m) behind it, flat roofs.
+  const barn = room('schuur', 6, 5, 4);
+  const ext = room('aanbouw', 3, 2, 2.6, { to: 'schuur', wall: 0, toWall: 2, thickness: 0.3, offset: 0 });
+  const level = (plan: ReturnType<typeof buildFloorPlan>) => stackLevels([{ id: 'a', name: 'a', plan, below: null, floorThickness: 0, dx: 0, dy: 0 }], 'a');
+
+  it('gives each room its own flat roof and a wall rising above the lower one', () => {
+    const plan = buildFloorPlan({ rooms: [barn, ext], outerWall: 0.3, measuredWidth: null, measuredDepth: null, turn: 0, flatThickness: 0.2 });
+    const faces = exteriorFaces(level(plan));
+    const flats = faces.filter((f) => f.kind === 'flat');
+    expect(flats.map((f) => +f.pts[0].z.toFixed(3)).sort()).toEqual([2.8, 4.2]);
+    // The barn's back wall above the extension faces backwards, from 2,8 to 4,2.
+    const step = faces.find((f) => f.kind === 'facade' && f.normal.y > 0.99 && Math.min(...f.pts.map((p) => p.z)) > 2.7);
+    expect(step).toBeDefined();
+    expect(Math.min(...step!.pts.map((p) => p.z))).toBeCloseTo(2.8, 6);
+    expect(Math.max(...step!.pts.map((p) => p.z))).toBeCloseTo(4.2, 6);
+    // Facades: the outline jumps from 4,2 to 2,8 where the extension starts.
+    const back = faces.filter((f) => f.kind === 'facade' && f.normal.y > 0.99);
+    expect(back.some((f) => Math.abs(Math.max(...f.pts.map((p) => p.z)) - 2.8) < 1e-9)).toBe(true);
+  });
+
+  it('puts a lean-to over the extension only, with a dormer and a roof window on the main roof', () => {
+    const lean = roofSection({ type: 'lessenaarsdak', span: 2.6, pitch: 15 });
+    const gable = roofSection({ type: 'zadeldak', span: 5.6, pitch: 40 });
+    const plan = buildFloorPlan({
+      rooms: [barn, ext],
+      outerWall: 0.3,
+      measuredWidth: null,
+      measuredDepth: null,
+      turn: 0,
+      roofs: [
+        {
+          key: '0',
+          name: 'kap',
+          section: gable,
+          ridge: 'x',
+          flip: false,
+          plateHeight: 4,
+          overhang: 0.3,
+          gableOverhang: 0.2,
+          length: null,
+          rooms: ['schuur'],
+          dormers: [{ name: 'dakkapel', plane: 1, offset: 1, width: 2, frontHeight: 1.2, setback: 0.5, windowWidth: 1.5, windowHeight: 0.8 }],
+          windows: [{ name: 'dakraam', plane: 0, offset: 3, up: 0.8, width: 0.78, length: 1.18 }],
+        },
+        { key: '1', name: 'lessenaar', section: lean, ridge: 'x', flip: true, plateHeight: 2.6, overhang: 0, gableOverhang: 0, length: null, rooms: ['aanbouw'] },
+      ],
+    });
+    expect(plan.warnings).toEqual([]);
+    expect(plan.roomRoof).toEqual([0, 1]);
+    const [main, leanTo] = plan.roofs;
+    expect(main.planes.map((p) => p.label)).toEqual(['voor', 'achter']);
+    // Main roof spans the barn only: 5,6 m across, not the extension.
+    expect(main.spanDiff).toBeCloseTo(0, 6);
+    // Lean-to high against the barn (front of the extension), low at the back.
+    expect(leanTo.profile[0].z).toBeGreaterThan(leanTo.profile[1].z);
+    // Dormer on the back plane: front 0,5 m in from the wall plate, 1,2 m high.
+    const d = main.dormers[0];
+    const zF = 4 + 0.5 * Math.tan((40 * Math.PI) / 180);
+    expect(d.front[0].z).toBeCloseTo(zF, 6);
+    expect(d.topHeight).toBeCloseTo(zF + 1.2, 6);
+    expect(d.facing.y).toBe(1); // faces backwards
+    expect(d.window).not.toBeNull();
+    // Roof window 0,8 m up the front plane from the plate.
+    const w = main.windows[0];
+    expect(w.pts[0].z).toBeCloseTo(4 + 0.8 * Math.sin((40 * Math.PI) / 180), 6);
+    const faces = exteriorFaces(level(plan));
+    expect(faces.filter((f) => f.kind === 'roof')).toHaveLength(3);
+    expect(faces.filter((f) => f.kind === 'dormer')).toHaveLength(3);
+    // Plan: roof outlines, dormer and roof window.
+    const v = planView(plan);
+    expect(v.prims.filter((p) => p.t === 'line' && p.cls === 'roof-line' && p.closed)).toHaveLength(2);
+    expect(v.prims.some((p) => p.t === 'text' && p.text === 'dakkapel')).toBe(true);
+    expect(v.prims.some((p) => p.t === 'text' && p.text === 'dakraam')).toBe(true);
+    // Dormers seen from the back sit in front of the roof plane in the drawing order.
+    const back = project(faces, { azimuth: 180, elevation: 0 });
+    const kinds = back.map((f) => f.kind);
+    expect(kinds.lastIndexOf('dormer')).toBeGreaterThan(kinds.indexOf('roof'));
+  });
+
+  it('warns about dormers and roof windows that do not fit', () => {
+    const gable = roofSection({ type: 'zadeldak', span: 5.6, pitch: 40 });
+    const plan = buildFloorPlan({
+      rooms: [barn],
+      outerWall: 0.3,
+      measuredWidth: null,
+      measuredDepth: null,
+      turn: 0,
+      roofs: [
+        {
+          section: gable,
+          ridge: 'x',
+          flip: false,
+          plateHeight: 4,
+          overhang: 0,
+          gableOverhang: 0,
+          length: null,
+          dormers: [{ name: 'hoog', plane: 0, offset: 0, width: 2, frontHeight: 5, setback: 0.5, windowWidth: null, windowHeight: null }],
+          windows: [{ name: 'lang', plane: 1, offset: 6, up: 3, width: 1, length: 2 }],
+        },
+      ],
+    });
+    expect(plan.warnings.some((w) => /hoog: komt boven de nok uit/.test(w))).toBe(true);
+    expect(plan.warnings.some((w) => /lang: past niet op het dakvlak/.test(w))).toBe(true);
+    expect(plan.warnings.some((w) => /lang: valt \(deels\) buiten/.test(w))).toBe(true);
   });
 });
 
@@ -158,7 +313,7 @@ describe('drawings', () => {
     const v = planView(g);
     const dims = v.prims.filter((p) => p.t === 'dim').map((p) => (p as { text: string }).text);
     expect(dims).toContain('8800');
-    expect(dims).toContain('8000');
+    expect(dims).toContain('11300');
     // Chain along the front: outer wall, living room, partition, hall, outer wall.
     for (const t of ['300', '5000', '100', '3100']) expect(dims).toContain(t);
     expect(v.prims.some((p) => p.t === 'text' && p.text === 'Woonkamer')).toBe(true);
@@ -171,10 +326,13 @@ describe('drawings', () => {
     expect(texts).toContain('9200'); // roof with the gable overhang
     expect(texts).toContain('9400'); // ridge
     expect(texts).toContain('+2900'); // upper floor
-    expect(texts).toContain('+5400'); // wall plate
+    expect(texts).toContain('+5000'); // gutter: plate minus the drop of the overhang
     expect(texts).toContain('Begane grond'); // chain per floor
     const side = elevationView(levels, 'rechts');
-    expect(side.prims.some((p) => p.t === 'dim' && p.text === '8000')).toBe(true);
+    expect(side.prims.some((p) => p.t === 'dim' && p.text === '11300')).toBe(true);
+    const sideTexts = side.prims.flatMap((p) => (p.t === 'text' ? [p.text] : []));
+    expect(sideTexts).toEqual(expect.arrayContaining(['+2600', '+5400', '+6200', '+7700'])); // extension, plate, dormer
+    expect(sideTexts).not.toContain('+8400'); // no marks for points halfway a sloping edge
   });
 
   it('renders SVG for the screen with escaped names', () => {

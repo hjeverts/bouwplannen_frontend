@@ -1673,3 +1673,34 @@ app-house-viewer {
   display: block;
   min-width: 0;
 }
+.roof-rooms {
+  border: 0;
+  padding: 0;
+  margin: 10px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.roof-rooms legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.roof-card .segmented {
+  margin-bottom: 8px;
+}
+.sub-title {
+  margin: 14px 0 6px;
+  font-size: 0.95rem;
+}
+.sub-card {
+  padding: 10px 10px 2px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.sub-card .fields {
+  margin-block: 10px 6px;
+}

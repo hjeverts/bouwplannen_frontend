@@ -47,8 +47,9 @@ function floor(id: string, name: string, patch: Partial<PlattegrondItem>): Platt
 }
 
 /**
- * A small two-storey house: ground floor with living room, hall and kitchen, first floor with
- * two bedrooms, landing and bathroom, and a gable roof. Shows how rooms, walls, floors and the
+ * A small two-storey house: ground floor with living room, hall, kitchen and an extension with a
+ * lean-to roof, first floor with two bedrooms, landing and bathroom, and a gable roof with a
+ * dormer at the back and a roof window at the front. Shows how rooms, walls, floors and the
  * roof come together.
  */
 export function exampleHouse(): Project {
@@ -68,6 +69,8 @@ export function exampleHouse(): Project {
   const slk2 = rectRoom('vw-slk2', 'Slaapkamer 2', 4.6, 3.65, 2.5, [o('raam', 2, 1.4, 1.8, 1.3, 0.9), o('deur', 1, 0.3, 0.83, 2.115)]);
   const overloop = rectRoom('vw-overloop', 'Overloop', 3.5, 2.4, 2.5, [o('raam', 0, 1.2, 1, 1, 1.1), o('deur slaapkamer', 3, 0.4, 0.83, 2.115), o('deur badkamer', 2, 1.2, 0.73, 2.115)]);
   const bad = rectRoom('vw-bad', 'Badkamer', 3.5, 4.9, 2.5, [o('raam', 2, 1.3, 0.8, 0.8, 1.4)]);
+  // Extension behind the living room, against the old back wall, with a lean-to roof.
+  const uitbouw = rectRoom('vw-uitbouw', 'Uitbouw', 5, 3, 2.6, [o('schuifpui', 2, 1, 3, 2.2), o('raam', 3, 0.8, 1.2, 1.2, 0.9)]);
 
   const roof: DakItem = {
     id: 'vw-kap',
@@ -94,19 +97,46 @@ export function exampleHouse(): Project {
     length: '8,800',
   };
 
+  const leanTo: DakItem = {
+    ...roof,
+    id: 'vw-kap-uitbouw',
+    name: 'Lessenaarsdak uitbouw',
+    roofType: 'lessenaarsdak',
+    span: '3,600',
+    pitch: '10',
+    overhang: '0,300',
+    gableOverhang: '0,100',
+    length: '5,600',
+  };
+
   const ground = floor('vw-bg', 'Begane grond', {
     measuredWidth: '8,810',
-    measuredDepth: '8,000',
+    measuredDepth: '11,300',
+    // The lean-to rises towards the house: flipped, so its high side is at the front of the extension.
+    roofs: [{ roofId: leanTo.id, rooms: [uitbouw.id], ridge: 'x', flip: true, plateHeight: '', dormers: [], windows: [] }],
     rooms: [
       { roomId: woon.id },
       { roomId: hal.id, to: woon.id, wall: '3', toWall: '1', thickness: '0,100', offset: '0' },
       { roomId: keuken.id, to: hal.id, wall: '0', toWall: '2', thickness: '0,100', offset: '0' },
+      { roomId: uitbouw.id, to: woon.id, wall: '0', toWall: '2', thickness: '0,300', offset: '0' },
     ],
   });
   const first = floor('vw-1', 'Verdieping', {
     below: ground.id,
     floorThickness: '0,300',
-    roofId: roof.id,
+    roofs: [
+      {
+        roofId: roof.id,
+        rooms: [],
+        ridge: 'x',
+        flip: false,
+        plateHeight: '',
+        dormers: [
+          { name: 'dakkapel', plane: '1', offset: '1,200', width: '2,600', frontHeight: '1,500', setback: '0,800', windowWidth: '2,000', windowHeight: '1,000' },
+        ],
+        windows: [{ name: 'dakraam', plane: '0', offset: '5,600', up: '1,000', width: '0,780', length: '1,180' }],
+      },
+    ],
     rooms: [
       { roomId: slk1.id },
       { roomId: slk2.id, to: slk1.id, wall: '0', toWall: '2', thickness: '0,100', offset: '0' },
@@ -122,6 +152,6 @@ export function exampleHouse(): Project {
     name: 'Voorbeeld: woning',
     created: now,
     updated: now,
-    items: [ground, first, woon, hal, keuken, slk1, slk2, overloop, bad, roof],
+    items: [ground, first, woon, hal, keuken, uitbouw, slk1, slk2, overloop, bad, roof, leanTo],
   };
 }

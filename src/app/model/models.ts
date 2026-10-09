@@ -133,6 +133,53 @@ export interface VoidEntry {
   length: string;
 }
 
+/** A dormer (dakkapel) on a roof plane. */
+export interface DormerEntry {
+  name: string;
+  /** Roof plane index as text. */
+  plane: string;
+  /** Along the ridge from the outside of the building (left, or front for a ridge front to back). */
+  offset: string;
+  width: string;
+  /** Height of the front face, from the roof to the top. */
+  frontHeight: string;
+  /** Horizontal distance from the wall plate to the front face. */
+  setback: string;
+  windowWidth: string;
+  windowHeight: string;
+}
+
+/** A roof window (dakraam) in a roof plane. */
+export interface RoofWindowEntry {
+  name: string;
+  plane: string;
+  offset: string;
+  /** Along the slope from the wall plate (or knee) to the window. */
+  up: string;
+  width: string;
+  /** Along the slope. */
+  length: string;
+}
+
+/** A roof (Dak & spant item) on a floor, over some or all of its rooms. */
+export interface RoofEntry {
+  roofId: string;
+  /** Rooms (Vorm ids) under this roof; empty = the whole floor. */
+  rooms: string[];
+  ridge: 'x' | 'y';
+  flip: boolean;
+  plateHeight: string;
+  dormers: DormerEntry[];
+  windows: RoofWindowEntry[];
+}
+
+/** Roofs of a floor plan; older items have a single roofId. */
+export function roofEntries(item: PlattegrondItem): RoofEntry[] {
+  if (item.roofs) return item.roofs;
+  if (!item.roofId) return [];
+  return [{ roofId: item.roofId, rooms: [], ridge: item.ridge, flip: item.roofFlip, plateHeight: item.plateHeight, dormers: [], windows: [] }];
+}
+
 /** One floor of a building: rooms placed against each other, outer walls, roof and the floor below. */
 export interface PlattegrondItem extends BaseItem {
   kind: 'plattegrond';
@@ -158,6 +205,10 @@ export interface PlattegrondItem extends BaseItem {
   shiftY: string;
   /** Stairwells in this floor (optional: older items lack it). */
   voids?: VoidEntry[];
+  /** Roofs on this floor; replaces roofId/ridge/roofFlip/plateHeight when present. */
+  roofs?: RoofEntry[];
+  /** Thickness of flat roofs (rooms without a roof or a floor above). */
+  flatThickness?: string;
 }
 
 export type Item = HoekItem | DriehoekItem | VormItem | DakItem | MatenItem | PlattegrondItem;

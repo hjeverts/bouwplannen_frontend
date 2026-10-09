@@ -3,13 +3,17 @@ import { buildFloorPlan, FloorPlan, PlanOpeningInput, PlanRoofInput, PlanRoomInp
 import { GeometryError } from '../geometry/geometry';
 import { parseLength } from '../geometry/units';
 import { computeDak, computeVorm, Outcome } from './compute';
-import { DakItem, Item, PlattegrondItem, VormItem } from './models';
+import { DakItem, Item, PlattegrondItem, roofEntries, VormItem } from './models';
 
 export interface PlattegrondResult {
   plan: FloorPlan;
   /** Rooms whose shape is not complete yet, with the reason. */
   incompleteRooms: { name: string; reason: string }[];
-  /** Height of the wall plates used for the roof (from this floor). */
+  /** Per roof entry: wall-plate height used (from this floor), whether it was assumed, and problems. */
+  roofInfo: { name: string; plateHeight: number | null; assumed: boolean; fromFloor: boolean; problem: string | null }[];
+  /** Thickness of flat roofs used. */
+  flatThickness: number;
+  /** First roof's plate height (most floors have one roof). */
   plateHeight: number | null;
   plateHeightAssumed: boolean;
   roofProblem: string | null;
@@ -84,33 +88,72 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
     const outerWall = lengthOr(item.outerWall, 'Buitenmuur', null);
     if (outerWall === null) return { status: 'incomplete', message: 'Vul de dikte van de buitenmuur in.' };
 
-    let roof: PlanRoofInput | null = null;
-    let roofProblem: string | null = null;
-    let plateHeight: number | null = null;
-    let plateHeightAssumed = false;
-    if (item.roofId) {
-      const dak = items.find((i): i is DakItem => i.kind === 'dak' && i.id === item.roofId);
+    const roofs: PlanRoofInput[] = [];
+    const roofInfo: PlattegrondResult['roofInfo'] = [];
+    for (const [ri, entry] of roofEntries(item).entries()) {
+      const dak = items.find((i): i is DakItem => i.kind === 'dak' && i.id === entry.roofId);
       const r = dak ? computeDak(dak) : null;
-      if (!dak) roofProblem = 'De gekozen kap bestaat niet meer.';
-      else if (r!.status !== 'ok') roofProblem = `Kap "${dak.name}": ${r!.message}`;
-      else {
-        const section = r!.value.roof;
-        plateHeight = lengthOr(item.plateHeight, 'Hoogte muurplaat', null);
-        if (plateHeight === null) {
-          plateHeight = Math.max(...rooms.flatMap((x) => x.heights));
-          plateHeightAssumed = true;
-        }
-        if (section.fromFloor) plateHeight = section.plateLeft;
-        roof = {
-          section,
-          ridge: item.ridge,
-          flip: item.roofFlip,
-          plateHeight: plateHeight,
-          overhang: lengthOr(dak.overhang, 'Overstek goot', 0) ?? 0,
-          gableOverhang: lengthOr(dak.gableOverhang, 'Overstek kopgevels', 0) ?? 0,
-          length: lengthOr(dak.length, 'Daklengte', null),
-        };
+      const name = dak?.name ?? `Kap ${ri + 1}`;
+      if (!entry.roofId) {
+        roofInfo.push({ name, plateHeight: null, assumed: false, fromFloor: false, problem: null });
+        continue;
       }
+      if (!dak || !r) {
+        roofInfo.push({ name, plateHeight: null, assumed: false, fromFloor: false, problem: 'De gekozen kap bestaat niet meer.' });
+        continue;
+      }
+      if (r.status !== 'ok') {
+        roofInfo.push({ name, plateHeight: null, assumed: false, fromFloor: false, problem: `Kap "${dak.name}": ${r.message}` });
+        continue;
+      }
+      const section = r.value.roof;
+      const covered = entry.rooms.length ? rooms.filter((x) => entry.rooms.includes(x.id)) : rooms;
+      let plateHeight = lengthOr(entry.plateHeight, `${name}: hoogte muurplaat`, null);
+      let assumed = false;
+      if (plateHeight === null) {
+        plateHeight = Math.max(...(covered.length ? covered : rooms).flatMap((x) => x.heights));
+        assumed = true;
+      }
+      if (section.fromFloor) plateHeight = section.plateLeft;
+      roofInfo.push({ name, plateHeight, assumed: assumed && !section.fromFloor, fromFloor: section.fromFloor, problem: null });
+      const num = (t: string, label: string) => lengthOr(t, `${name}, ${label}`, null);
+      roofs.push({
+        key: String(ri),
+        name,
+        section,
+        ridge: entry.ridge,
+        flip: entry.flip,
+        plateHeight,
+        overhang: lengthOr(dak.overhang, 'Overstek goot', 0) ?? 0,
+        gableOverhang: lengthOr(dak.gableOverhang, 'Overstek kopgevels', 0) ?? 0,
+        length: lengthOr(dak.length, 'Daklengte', null),
+        rooms: entry.rooms,
+        dormers: entry.dormers.flatMap((d, i) => {
+          const label = d.name || `dakkapel ${i + 1}`;
+          const width = num(d.width, `${label}: breedte`);
+          const frontHeight = num(d.frontHeight, `${label}: hoogte voorkant`);
+          if (width === null || frontHeight === null || d.plane === '') return [];
+          return [
+            {
+              name: label,
+              plane: Number(d.plane),
+              offset: num(d.offset, `${label}: afstand`) ?? 0,
+              width,
+              frontHeight,
+              setback: num(d.setback, `${label}: terugligging`) ?? 0,
+              windowWidth: num(d.windowWidth, `${label}: breedte raam`),
+              windowHeight: num(d.windowHeight, `${label}: hoogte raam`),
+            },
+          ];
+        }),
+        windows: entry.windows.flatMap((w, i) => {
+          const label = w.name || `dakraam ${i + 1}`;
+          const width = num(w.width, `${label}: breedte`);
+          const length = num(w.length, `${label}: lengte`);
+          if (width === null || length === null || w.plane === '') return [];
+          return [{ name: label, plane: Number(w.plane), offset: num(w.offset, `${label}: afstand`) ?? 0, up: num(w.up, `${label}: vanaf de muurplaat`) ?? 0, width, length }];
+        }),
+      });
     }
 
     const voids: PlanVoidInput[] = [];
@@ -137,9 +180,15 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
       measuredWidth: lengthOr(item.measuredWidth, 'Buitenmaat voorgevel', null),
       measuredDepth: lengthOr(item.measuredDepth, 'Buitenmaat diepte', null),
       turn: item.turn,
-      roof,
+      roofs,
+      flatThickness: lengthOr(item.flatThickness, 'Dikte plat dak', 0.3) ?? 0.3,
     });
-    return { status: 'ok', value: { plan, incompleteRooms, plateHeight, plateHeightAssumed, roofProblem, assumedHeight } };
+    const first = roofInfo.find((x) => !x.problem && x.plateHeight !== null) ?? null;
+    const roofProblem = roofInfo.map((x) => x.problem).filter(Boolean).join(' ') || null;
+    return {
+      status: 'ok',
+      value: { plan, incompleteRooms, roofInfo, flatThickness: plan.flatThickness, plateHeight: first?.plateHeight ?? null, plateHeightAssumed: first?.assumed ?? false, roofProblem, assumedHeight },
+    };
   } catch (e) {
     if (e instanceof GeometryError) return { status: 'error', message: e.message };
     throw e;

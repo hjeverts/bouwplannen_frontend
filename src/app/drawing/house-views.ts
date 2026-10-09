@@ -3,7 +3,7 @@
  * elevations with dimensions. Output is the vector format of ./vector, in metres.
  */
 import { Camera, cutawayFaces, exteriorFaces, Level, project, Projected } from '../geometry/building';
-import { FloorPlan } from '../geometry/floorplan';
+import { FloorPlan, pointInPolygon } from '../geometry/floorplan';
 import { Point } from '../geometry/geometry';
 import { formatArea } from '../geometry/units';
 import { Prim, View } from './vector';
@@ -12,6 +12,7 @@ const mm = (m: number) => String(Math.round(m * 1000));
 
 const COLOURS: Record<Projected['kind'], [number, number, number]> = {
   facade: [221, 212, 196],
+  dormer: [236, 233, 226],
   roof: [112, 78, 64],
   flat: [140, 146, 142],
   floor: [233, 228, 216],
@@ -155,8 +156,7 @@ export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
   }
   prims.push({ t: 'dim', a: { x: o.maxX, y: o.minY }, b: { x: o.maxX, y: o.maxY }, off: sy.length > 2 ? -13 : -6, text: mm(o.maxY - o.minY) });
 
-  if (plan.roof && opts.roof !== false) {
-    const r = plan.roof;
+  for (const r of opts.roof === false ? [] : plan.roofs) {
     const c0 = r.eaves[0].c;
     const c1 = r.eaves[r.eaves.length - 1].c;
     const at = (c: number, v: number): Point => (r.ridge === 'x' ? { x: v, y: c } : { x: c, y: v });
@@ -167,6 +167,15 @@ export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
       const isEdge = p === r.profile[0] || p === r.profile[r.profile.length - 1];
       if (isEdge) continue;
       prims.push({ t: 'line', pts: [at(p.c, r.from), at(p.c, r.to)], cls: isRidge ? 'ridge-line' : 'roof-line' });
+    }
+    for (const d of r.dormers) {
+      prims.push({ t: 'line', pts: d.outline, cls: 'sym-thin', closed: true });
+      prims.push({ t: 'text', at: centre(d.outline), text: d.name, cls: 'label-sub', size: 2.1 });
+    }
+    for (const w of r.windows) {
+      prims.push({ t: 'line', pts: w.outline, cls: 'sym', closed: true });
+      prims.push({ t: 'line', pts: [w.outline[0], w.outline[2]], cls: 'sym-thin' });
+      prims.push({ t: 'text', at: centre(w.outline), text: w.name, cls: 'label-sub', size: 2.1, dy: 2.2 });
     }
   }
   return { prims, title: opts.title, scalable: true };
@@ -263,18 +272,24 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
 
   // Vertical, right of the building: floor levels, eaves/top of the walls and the ridge.
   const heights = new Set<number>([0, top]);
-  for (const lv of levels) {
-    if (lv.base > 0) heights.add(lv.base);
-    const roof = lv.plan.roof;
-    if (roof) {
-      heights.add(lv.base + roof.profile[0].z);
-      heights.add(lv.base + roof.profile[roof.profile.length - 1].z);
-      if (roof.section.knee) roof.profile.slice(1, -1).forEach((p) => heights.add(lv.base + p.z));
-    } else {
-      heights.add(lv.base + lv.storey + (lv.above ? Math.max(0, lv.above.floorThickness) : 0));
+  for (const lv of levels) if (lv.base > 0) heights.add(lv.base);
+  // In an elevation the screen height is the real height: take the corners of walls, dormers and flat roofs.
+  // Only corners you can see: not covered by a face drawn later (nearer).
+  faces.forEach((f, i) => {
+    if (f.kind !== 'facade' && f.kind !== 'dormer' && f.kind !== 'flat' && f.kind !== 'roof') return;
+    for (const p of f.rings[0]) {
+      const hidden = faces.slice(i + 1).some((g) => g.kind !== 'glass' && g.kind !== 'door' && pointInPolygon(p, g.rings[0], -0.01));
+      if (!hidden) heights.add(Math.round(p.y * 1e4) / 1e4);
+    }
+  });
+  // Heights closer than 10 cm to the previous one would only clutter the chain.
+  const hs: number[] = [];
+  for (const h of [...heights].filter((x) => x <= top + 1e-6).sort((a, b) => a - b)) {
+    if (!hs.length || h - hs[hs.length - 1] > 0.1 || h === top) {
+      if (hs.length && h - hs[hs.length - 1] <= 0.1) hs.pop();
+      hs.push(h);
     }
   }
-  const hs = [...heights].filter((h) => h <= top + 1e-6).sort((a, b) => a - b).filter((v, i, arr) => i === 0 || v - arr[i - 1] > 0.005);
   const xr = roofMax;
   if (hs.length > 2) {
     for (let i = 0; i + 1 < hs.length; i++) {

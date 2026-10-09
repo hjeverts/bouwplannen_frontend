@@ -12,7 +12,7 @@ Angular-app om op de bouwplaats maten vast te leggen en door te rekenen. Bedoeld
 | ↳ openingen | Deur/raam: wand, afstand vanaf de hoek, breedte, hoogte, borstwering | Netto oppervlak per wand; controle of hij past (lengte, hoogte op die plek, overlap) |
 | **Dak & spant** | Zadeldak: overspanning, muurhoogte links/rechts, en **twee** van: helling links/rechts, spar links/rechts, nokhoogte, nokpositie. Lessenaarsdak: helling uit twee muurhoogtes of één waarde. Mansardekap: onderdak (2 waarden) + bovendak (1 waarde). Overstek goot en kopgevels, daklengte | Hellingen (° en %), sparlengtes met/zonder overstek, nokhoogte, lengte gordingen en nok, gevelvlak, dakoppervlak per dakvlak |
 | **Driehoek** | Drie willekeurige waarden (minstens één zijde) | Alle zijden, hoeken, hoogte, oppervlakte; beide oplossingen als die er zijn |
-| **Plattegrond** | Ruimtes tegen elkaar, muurdiktes, trapgat, verdieping, kap | Plattegrond, 3D, gevels met maten, buitenmaat-controle, A4-print |
+| **Plattegrond** | Ruimtes tegen elkaar, muurdiktes, trapgat, verdieping, kappen (ook over een uitbouw), dakkapellen, dakramen | Plattegrond, 3D, gevels met maten, buitenmaat-controle, A4-print |
 | **Losse maten** | Lijst met label + maat | Opgeteld totaal |
 
 Invoer accepteert `3,456`, `3.456`, `345,6 cm` en `3456 mm`. Export naar JSON (back-up), CSV (Excel, met `;` en decimale komma) en DXF (omtrek in mm voor CAD).
@@ -25,7 +25,9 @@ Met **Plattegrond** voeg je de gemeten ruimtes samen tot één verdieping:
 - Een deur of raam in een muur tussen twee ruimtes zet je maar in één van de twee; hij komt vanzelf in beide (plattegrond, 3D, netto wandoppervlak).
 - **Buitenmaat-controle**: met de dikte van de buitenmuur rekent de app de buitenmaat uit en vergelijkt die met je gemeten breedte en diepte. Klopt het niet, dan zie je het verschil en hoe dik de buitenmuur dan zou zijn.
 - **Trapgat**: een gat in de vloer, gemeten in een ruimte vanaf een wand. Op die verdieping gekruist met maten, op de verdieping eronder gestippeld ("trap ↑"), in 3D als gat in de vloer.
-- **Verdiepingen**: geef aan op welke plattegrond een verdieping staat, met de vloerdikte en eventueel een verschuiving. De **kap** (een Dak & spant) zet je op de bovenste verdieping, met de nok evenwijdig aan of haaks op de voorgevel.
+- **Verdiepingen**: geef aan op welke plattegrond een verdieping staat, met de vloerdikte en eventueel een verschuiving.
+- **Kappen**: een verdieping kan meerdere kappen hebben (elk een Dak & spant), over de hele verdieping of over de ruimtes die je aanvinkt, met de nok evenwijdig aan of haaks op de voorgevel. Zo krijgt een **uitbouw** een eigen lessenaarsdak; ruimtes zonder kap en zonder verdieping erboven krijgen een plat dak op hun eigen hoogte. Steekt een ruimte boven een lagere uit, dan komt het stuk muur erboven vanzelf in 3D en de gevels.
+- **Dakkapellen** (dakvlak, afstand vanaf de kopgevel, breedte, hoogte voorkant, terugligging vanaf de muurplaat, raam) en **dakramen** (dakvlak, afstand vanaf de kopgevel, afstand langs de helling vanaf de muurplaat, breedte, lengte). Met een waarschuwing als iets niet op het dakvlak past.
 - **Weergave**: plattegrond met muren, deuren (draairichting), ramen, kettingmaten en kap-omtrek; 3D van buiten (hele gebouw) of van binnen (verdieping opengewerkt); de vier **gevels** met maatvoering (kettingmaat per verdieping, peilmaten, goot en nok).
 - **Printen** op A4 liggend op schaal (1:50, 1:100, 1:200 …) met titelblok: de plattegrond, een gevel, of het **A4-overzicht** met 3D, plattegrond en alle gevels op één schaal. Kies in het printvenster "Opslaan als PDF" voor een bestand. De plattegrond gaat ook als DXF (lagen per soort) naar CAD.
 
@@ -68,7 +70,7 @@ src/app/
 ```bash
 npm install --legacy-peer-deps   # npm 10 struikelt anders over een peer-dependency
 npm start                        # http://localhost:4200, /api gaat naar de backend op :5094
-npm test -- --watch=false        # Vitest, 147 tests
+npm test -- --watch=false        # Vitest, 151 tests
 npm run build                    # dist/bouwplannen-frontend/browser, statisch te hosten
 ```
 

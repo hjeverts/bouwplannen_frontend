@@ -9,8 +9,13 @@
  * Plan coordinates: metres, x to the right, y away from the viewer ("front" is the bottom of the
  * plan, at small y). After placing, everything is shifted so the outside of the building starts at (0, 0).
  */
-import polygonClipping, { MultiPolygon, Polygon as ClipPolygon, Ring } from 'polygon-clipping';
-import { GeometryError, Point, RoofResult } from './geometry';
+import { MultiPolygon, Polygon as ClipPolygon, Ring } from 'polygon-clipping';
+import { difference, union as unionAll } from './clip';
+import { GeometryError, Point } from './geometry';
+import { placeRoof, PlacedRoof, PlanRoofInput } from './roofs';
+
+export { roofProfile } from './roofs';
+export type { DormerInput, P3, PlacedDormer, PlacedRoof, PlacedRoofWindow, PlanRoofInput, ProfilePoint, RoofPlane, RoofWindowInput } from './roofs';
 
 const MM = 0.001;
 
@@ -54,19 +59,6 @@ export interface PlanRoomInput {
   link: PlanLinkInput | null;
 }
 
-export interface PlanRoofInput {
-  section: RoofResult;
-  /** Ridge parallel to the x axis (front facade) or the y axis. */
-  ridge: 'x' | 'y';
-  /** Put the roof's left side at the back (ridge x) or the right (ridge y) instead. */
-  flip: boolean;
-  /** Height of the wall plates above the floor, for roofs measured without wall heights. */
-  plateHeight: number;
-  overhang: number;
-  gableOverhang: number;
-  /** Roof length as entered on the roof, to compare with the building. */
-  length: number | null;
-}
 
 /** A hole in the floor (stairwell, vide), placed in a room from one of its walls. */
 export interface PlanVoidInput {
@@ -99,7 +91,12 @@ export interface PlanInput {
   measuredDepth: number | null;
   /** Quarter turns (counter-clockwise) of the whole plan, to choose which side is the front. */
   turn: number;
-  roof: PlanRoofInput | null;
+  /** Roofs on this floor; rooms under no roof get a flat roof. */
+  roofs?: PlanRoofInput[];
+  /** @deprecated single roof over the whole floor; use `roofs`. */
+  roof?: PlanRoofInput | null;
+  /** Thickness of a flat roof above rooms without a roof or a floor above (default 0,300). */
+  flatThickness?: number;
 }
 
 export interface WallOpening {
@@ -189,31 +186,6 @@ export interface DimensionCheck {
   impliedWall: number | null;
 }
 
-export interface ProfilePoint {
-  /** Plan coordinate across the ridge (y for a ridge along x, x for a ridge along y). */
-  c: number;
-  z: number;
-}
-
-export interface PlacedRoof {
-  section: RoofResult;
-  ridge: 'x' | 'y';
-  /** Underside of the roof from wall plate to wall plate, increasing c. */
-  profile: ProfilePoint[];
-  /** Same, with the first and last point moved out by the overhang at the eaves (same slopes). */
-  eaves: ProfilePoint[];
-  /** Extent along the ridge, including the overhang at the gables. */
-  from: number;
-  to: number;
-  ridgeHeight: number;
-  /** Building width across the ridge (outside of the walls) minus the roof span. */
-  spanDiff: number;
-  /** Building length along the ridge minus the roof length (when entered). */
-  lengthDiff: number | null;
-  /** Height of the roof underside at plan coordinate c across the ridge. */
-  heightAt: (c: number) => number;
-}
-
 export interface FloorPlan {
   rooms: PlacedRoom[];
   unplaced: { name: string; reason: string }[];
@@ -235,7 +207,12 @@ export interface FloorPlan {
   /** Stairwells and other holes in this floor. */
   voids: PlacedVoid[];
   voidArea: number;
+  roofs: PlacedRoof[];
+  /** The first roof (most floors have one). */
   roof: PlacedRoof | null;
+  /** Per room: index of the roof it is under, or null (flat roof or a floor above). */
+  roomRoof: (number | null)[];
+  flatThickness: number;
   warnings: string[];
 }
 
@@ -582,19 +559,20 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
   const pieces: ClipPolygon[] = rooms.map((r) => [toRing(grow(r.points, outerWall))]);
   for (const w of rooms.flatMap((r) => r.walls)) {
     for (const nb of w.neighbours) {
-      if (nb.thickness < MM) continue;
+      // Walls up to twice the outer wall are already closed by the grown rooms on both sides.
+      if (nb.thickness < MM || nb.thickness <= 2 * outerWall - 1e-6) continue;
       const p0 = add(w.from, mul(w.dir, nb.from));
       const p1 = add(w.from, mul(w.dir, nb.to));
       const out = mul(w.inward, -nb.thickness);
       // Slightly wider than the gap so the union closes it without slivers.
-      const e = mul(w.inward, 1e-4);
+      const e = mul(w.inward, 1e-3);
       pieces.push([toRing([add(p0, e), add(p1, e), add(add(p1, out), mul(e, -1)), add(add(p0, out), mul(e, -1))])]);
     }
   }
-  const union: MultiPolygon = pieces.length ? polygonClipping.union(pieces[0], ...pieces.slice(1)) : [];
+  const union: MultiPolygon = unionAll(...pieces);
   const footprint = union.map((poly) => poly.map(fromRing)).filter((poly) => poly[0] && poly[0].length >= 3);
-  const roomsUnion = rooms.length ? polygonClipping.union(...(rooms.map((r) => [toRing(r.points)]) as [ClipPolygon, ...ClipPolygon[]])) : [];
-  const walled = polygonClipping.difference(union, roomsUnion);
+  const roomsUnion = unionAll(...rooms.map((r) => [toRing(r.points)] as ClipPolygon));
+  const walled = roomsUnion.length ? difference(union, roomsUnion) : union;
   const wallRings = walled.flatMap((poly) => poly.map(fromRing));
 
   const outer = boxOf(footprint.flatMap((poly) => poly[0]));
@@ -637,12 +615,31 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
   }
   const voidArea = voids.reduce((s, v) => s + v.area, 0);
 
-  const roof = input.roof && rooms.length ? placeRoof(input.roof, outer) : null;
-  if (roof && Math.abs(roof.spanDiff) > 0.02) {
-    const across = input.roof!.ridge === 'x' ? 'diepte' : 'breedte';
-    warnings.push(
-      `De overspanning van de kap (${fmt(roof.section.span)}) wijkt ${fmtMm(roof.spanDiff)} af van de ${across} van het gebouw (${fmt(roof.section.span + roof.spanDiff)}). De kap staat in het midden.`,
-    );
+  // 8. Roofs, each over its rooms (or the whole floor).
+  const roofInputs = input.roofs ?? (input.roof ? [input.roof] : []);
+  const roofs: PlacedRoof[] = [];
+  const roomRoof: (number | null)[] = rooms.map(() => null);
+  for (const r of roofInputs) {
+    if (!rooms.length) break;
+    const wanted = r.rooms && r.rooms.length ? rooms.filter((x) => r.rooms!.includes(x.id)) : rooms;
+    if (wanted.length === 0) {
+      warnings.push(`${r.name || 'Kap'}: kies over welke ruimtes de kap ligt.`);
+      continue;
+    }
+    const box = boxOf(wanted.flatMap((x) => x.points));
+    const region = { minX: box.minX - outerWall, maxX: box.maxX + outerWall, minY: box.minY - outerWall, maxY: box.maxY + outerWall };
+    const placed = placeRoof(r, region, wanted.map((x) => x.index), warnings);
+    for (const x of wanted) {
+      if (roomRoof[x.index] !== null) warnings.push(`${x.name} ligt onder twee kappen; de eerste telt.`);
+      else roomRoof[x.index] = roofs.length;
+    }
+    if (Math.abs(placed.spanDiff) > 0.02) {
+      const across = r.ridge === 'x' ? 'diepte' : 'breedte';
+      warnings.push(
+        `De overspanning van ${placed.name === 'Kap' ? 'de kap' : `"${placed.name}"`} (${fmt(r.section.span)}) wijkt ${fmtMm(placed.spanDiff)} af van de ${across} eronder (${fmt(r.section.span + placed.spanDiff)}). De kap staat in het midden.`,
+      );
+    }
+    roofs.push(placed);
   }
 
   return {
@@ -662,7 +659,10 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
     partitionLength,
     voids,
     voidArea,
-    roof,
+    roofs,
+    roof: roofs[0] ?? null,
+    roomRoof,
+    flatThickness: input.flatThickness ?? 0.3,
     warnings: [...new Set(warnings)],
   };
 }
@@ -721,63 +721,6 @@ export function pointInPolygon(p: Point, poly: Point[], margin = 0): boolean {
     if (Math.hypot(p.x - q.x, p.y - q.y) < Math.abs(margin)) return false;
   }
   return true;
-}
-
-/** Underside of the roof section as (across, height) points from wall plate to wall plate. */
-export function roofProfile(section: RoofResult, plateHeight: number): { u: number; z: number }[] {
-  const base = section.fromFloor ? 0 : plateHeight;
-  let top: Point[];
-  if (section.type === 'mansardekap') top = section.outline;
-  else if (section.fromFloor) top = section.outline.slice(1, -1);
-  else if (section.type === 'lessenaarsdak') top = section.outline.slice(0, 2);
-  else top = section.outline;
-  return top.map((p) => ({ u: p.x, z: p.y + base }));
-}
-
-function placeRoof(input: PlanRoofInput, outer: Box): PlacedRoof {
-  const { section, ridge, flip } = input;
-  const [cMin, cMax] = ridge === 'x' ? [outer.minY, outer.maxY] : [outer.minX, outer.maxX];
-  const [vMin, vMax] = ridge === 'x' ? [outer.minX, outer.maxX] : [outer.minY, outer.maxY];
-  const centre = (cMin + cMax) / 2;
-  const start = centre - section.span / 2;
-  let profile = roofProfile(section, input.plateHeight).map((p) => ({ c: flip ? start + section.span - p.u : start + p.u, z: p.z }));
-  if (flip) profile = profile.reverse();
-
-  const extend = (p: ProfilePoint, q: ProfilePoint, by: number): ProfilePoint => {
-    // From p away from q, by a horizontal distance `by`, following the slope p–q.
-    const dc = p.c - q.c;
-    const slope = (p.z - q.z) / (dc || 1);
-    const step = Math.sign(dc) * by;
-    return { c: p.c + step, z: p.z + slope * step };
-  };
-  const o = Math.max(0, input.overhang);
-  const eaves =
-    o > 0 && profile.length >= 2
-      ? [extend(profile[0], profile[1], o), ...profile.slice(1, -1), extend(profile[profile.length - 1], profile[profile.length - 2], o)]
-      : profile;
-
-  const heightAt = (c: number): number => {
-    if (c <= profile[0].c) return profile[0].z;
-    for (let i = 1; i < profile.length; i++) {
-      const p = profile[i - 1];
-      const q = profile[i];
-      if (c <= q.c) return p.z + ((q.z - p.z) * (c - p.c)) / (q.c - p.c || 1);
-    }
-    return profile[profile.length - 1].z;
-  };
-  const g = Math.max(0, input.gableOverhang);
-  return {
-    section,
-    ridge,
-    profile,
-    eaves,
-    from: vMin - g,
-    to: vMax + g,
-    ridgeHeight: Math.max(...profile.map((p) => p.z)),
-    spanDiff: cMax - cMin - section.span,
-    lengthDiff: input.length === null ? null : vMax - vMin - input.length,
-    heightAt,
-  };
 }
 
 function fmt(m: number): string {

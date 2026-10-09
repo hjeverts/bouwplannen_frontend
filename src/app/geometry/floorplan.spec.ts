@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFloorPlan, grow, PlanInput, PlanRoomInput, pointInPolygon, signedArea } from './floorplan';
+import { buildFloorPlan, grow, hingeEnd, openingStyle, PlanInput, PlanRoomInput, pointInPolygon, signedArea } from './floorplan';
 import { mansardSection, Point, roofSection } from './geometry';
 
 const rect = (w: number, d: number): Point[] => [
@@ -250,6 +250,47 @@ describe('stairwells', () => {
     const lost = buildFloorPlan(plan([living], { voids: [{ name: 'x', room: 'weg', wall: 0, offset: 0, distance: 0, width: 1, length: 1 }] }));
     expect(lost.voids).toHaveLength(0);
     expect(lost.warnings[0]).toMatch(/kies de ruimte/);
+  });
+});
+
+describe('doors', () => {
+  it('guesses the kind of opening from its name, or takes the chosen kind', () => {
+    expect(openingStyle('voordeur', 0)).toBe('deur');
+    expect(openingStyle('roldeur garage', 0)).toBe('roldeur');
+    expect(openingStyle('Sectionaaldeur', 0)).toBe('roldeur');
+    expect(openingStyle('schuifpui', 0)).toBe('schuif');
+    expect(openingStyle('raam', 0.9)).toBe('raam');
+    expect(openingStyle('', 0)).toBe('deur');
+    expect(openingStyle('', 0.9)).toBe('raam');
+    expect(openingStyle('deur', 0, 'roldeur')).toBe('roldeur');
+  });
+
+  it('puts the hinges DIN-left or DIN-right, seen from the side the door opens to', () => {
+    // Door in a wall along x from a (0,0) to b (1,0); it opens towards +y.
+    const a = { x: 0, y: 0 };
+    const b = { x: 1, y: 0 };
+    // Standing at +y facing the door (looking towards −y): your left hand is +x, so b.
+    expect(hingeEnd(a, b, { x: 0, y: 1 }, 'links')).toBe('b');
+    expect(hingeEnd(a, b, { x: 0, y: 1 }, 'rechts')).toBe('a');
+    // Opening the other way round swaps them.
+    expect(hingeEnd(a, b, { x: 0, y: -1 }, 'links')).toBe('a');
+    expect(hingeEnd(a, b, { x: 0, y: -1 }, null)).toBe('a');
+  });
+
+  it('carries kind, swing and hinge to the plan', () => {
+    const r = room('hal', rect(3, 4), {
+      openings: [
+        { name: 'voordeur', wall: 0, offset: 1, width: 1, height: 2.3, sill: 0, swing: 'buiten', hinge: 'rechts' },
+        { name: 'garage', wall: 2, offset: 0.5, width: 2.4, height: 2.2, sill: 0, type: 'roldeur' },
+      ],
+    });
+    const fp = buildFloorPlan(plan([r]));
+    const [front, garage] = fp.openings;
+    expect(front).toMatchObject({ style: 'deur', door: true, swing: 'buiten' });
+    // Front wall runs along +x with the room at +y; opening outwards (−y), DIN-right: seen from outside the right hand is +x.
+    const hinge = front.hingeAt === 'a' ? front.a : front.b;
+    close(hinge.x, 0.3 + 2);
+    expect(garage).toMatchObject({ style: 'roldeur', door: true });
   });
 });
 

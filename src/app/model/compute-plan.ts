@@ -55,7 +55,7 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
         heights = room.walls.map((w) => w.heightFrom);
         for (const w of room.walls) {
           for (const o of w.openings) {
-            openings.push({ name: o.name, wall: w.index, offset: o.offset ?? 0, width: o.width, height: o.height, sill: o.sill ?? 0 });
+            openings.push({ name: o.name, wall: w.index, offset: o.offset ?? 0, width: o.width, height: o.height, sill: o.sill ?? 0, type: o.type, swing: o.swing, hinge: o.hinge });
           }
         }
       } else {

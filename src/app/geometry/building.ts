@@ -46,7 +46,7 @@ export type FaceKind = 'facade' | 'roof' | 'flat' | 'floor' | 'inner' | 'cap' | 
 
 export interface Decal {
   pts: P3[];
-  kind: 'glass' | 'door';
+  kind: 'glass' | 'door' | 'roldeur';
   name: string;
 }
 
@@ -113,7 +113,7 @@ function openingDecal(o: PlanOpening, base: number, offset: Point, outerWall: nu
   const b = { x: o.b.x + out.x, y: o.b.y + out.y };
   return {
     pts: [p3(a, base + o.sill, offset), p3(b, base + o.sill, offset), p3(b, base + top, offset), p3(a, base + top, offset)],
-    kind: o.door ? 'door' : 'glass',
+    kind: o.style === 'roldeur' ? 'roldeur' : o.door ? 'door' : 'glass',
     name: o.name,
   };
 }

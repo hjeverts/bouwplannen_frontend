@@ -135,6 +135,9 @@ function computeRoom(item: VormItem, shape: PolygonAnalysis): Pick<VormResult, '
         width,
         height,
         sill: len(o.sill ?? '', `${label}: borstwering`),
+        type: o.type || null,
+        swing: o.swing || null,
+        hinge: o.hinge || null,
       });
     });
     return { room: analyzeRoom(shape, heights, openings), roomMessage: null, roomError: false };

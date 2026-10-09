@@ -1,7 +1,8 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { Drawing, DrawingSpec, polygonSpec, Segment } from '../drawing/drawing';
 import { Room3d } from '../drawing/room3d';
-import { formatAngle, formatArea, formatLength, formatMm, formatVolume } from '../geometry/units';
+import { openingStyle, OpeningStyle } from '../geometry/floorplan';
+import { formatAngle, formatArea, formatLength, formatMm, formatVolume, parseLength } from '../geometry/units';
 import { computeVorm } from '../model/compute';
 import { OpeningEntry, resizeVorm, VormItem } from '../model/models';
 import { MeasureField } from '../ui/measure-field';
@@ -126,6 +127,37 @@ import { ResultRow, Results } from '../ui/results';
             <button type="button" class="icon-btn" (click)="removeOpening(i)" [attr.aria-label]="'Opening ' + (i + 1) + ' verwijderen'">×</button>
           </div>
           <div class="fields fields--4 opening-fields">
+            <label class="field field--text">
+              <span class="field-label">Soort</span>
+              <select [value]="o.type ?? ''" (change)="setOpening(i, 'type', $any($event.target).value)">
+                <option value="" [selected]="!o.type">Auto: {{ styleLabel(i) }}</option>
+                <option value="deur" [selected]="o.type === 'deur'">Draaideur</option>
+                <option value="roldeur" [selected]="o.type === 'roldeur'">Roldeur (opent naar boven)</option>
+                <option value="schuif" [selected]="o.type === 'schuif'">Schuifpui</option>
+                <option value="raam" [selected]="o.type === 'raam'">Raam</option>
+              </select>
+            </label>
+            @if (style(i) === 'deur') {
+              <label class="field field--text">
+                <span class="field-label">Draait open naar</span>
+                <select [value]="o.swing ?? ''" (change)="setOpening(i, 'swing', $any($event.target).value)">
+                  <option value="" [selected]="!o.swing || o.swing === 'binnen'">Naar binnen</option>
+                  <option value="buiten" [selected]="o.swing === 'buiten'">Naar buiten</option>
+                </select>
+                <span class="field-note">Binnen = deze ruimte in; buiten = naar buiten of de ruimte ernaast</span>
+              </label>
+              <label class="field field--text">
+                <span class="field-label">Scharnieren</span>
+                <select [value]="o.hinge ?? ''" (change)="setOpening(i, 'hinge', $any($event.target).value)">
+                  <option value="" [selected]="!o.hinge">Kant van hoekpunt {{ o.wall ? +o.wall + 1 : '…' }}</option>
+                  <option value="links" [selected]="o.hinge === 'links'">DIN-links</option>
+                  <option value="rechts" [selected]="o.hinge === 'rechts'">DIN-rechts</option>
+                </select>
+                <span class="field-note">Gezien vanaf de kant waar de deur naar je toe draait</span>
+              </label>
+            }
+          </div>
+          <div class="fields fields--4 opening-fields">
             @if (o.wall) {
               <app-measure-field
                 tag="↔"
@@ -146,6 +178,7 @@ import { ResultRow, Results } from '../ui/results';
       <div class="opening-actions">
         <button type="button" class="btn btn--quiet" (click)="addOpening('deur')">+ Deur</button>
         <button type="button" class="btn btn--quiet" (click)="addOpening('raam')">+ Raam</button>
+        <button type="button" class="btn btn--quiet" (click)="addOpening('roldeur')">+ Roldeur</button>
       </div>
       @if (roomMessage(); as m) {
         <p class="status" [class.status--error]="roomError()" role="status">{{ m }}</p>
@@ -347,7 +380,21 @@ export class VormEditor {
     this.changed.emit({ ...this.item(), flips });
   }
 
-  protected addOpening(kind: 'deur' | 'raam'): void {
+  /** How the opening will be drawn: chosen, or guessed from its name. */
+  protected style(i: number): OpeningStyle {
+    const o = this.item().openings[i];
+    const sill = parseLength(o.sill ?? '');
+    return openingStyle(o.name, sill === null || Number.isNaN(sill) ? 0 : sill, o.type || null);
+  }
+
+  protected styleLabel(i: number): string {
+    const o = this.item().openings[i];
+    const sill = parseLength(o.sill ?? '');
+    const guess = openingStyle(o.name, sill === null || Number.isNaN(sill) ? 0 : sill, null);
+    return { deur: 'draaideur', roldeur: 'roldeur', schuif: 'schuifpui', raam: 'raam' }[guess];
+  }
+
+  protected addOpening(kind: 'deur' | 'raam' | 'roldeur'): void {
     const count = this.item().openings.filter((o) => o.name.startsWith(kind)).length;
     const opening: OpeningEntry = {
       name: count ? `${kind} ${count + 1}` : kind,
@@ -355,7 +402,8 @@ export class VormEditor {
       height: '',
       wall: '',
       offset: '',
-      sill: kind === 'deur' ? '0' : '',
+      sill: kind === 'raam' ? '' : '0',
+      ...(kind === 'roldeur' ? { type: 'roldeur' as const } : {}),
     };
     this.changed.emit({ ...this.item(), openings: [...this.item().openings, opening] });
   }

@@ -20,6 +20,7 @@ const COLOURS: Record<Projected['kind'], [number, number, number]> = {
   cap: [61, 68, 65],
   glass: [150, 188, 210],
   door: [122, 90, 64],
+  roldeur: [120, 128, 132],
 };
 
 function shade(kind: Projected['kind'], light: number): string {
@@ -31,8 +32,26 @@ function shade(kind: Projected['kind'], light: number): string {
 function projectedPrims(faces: Projected[], labels = true): Prim[] {
   const prims: Prim[] = [];
   for (const f of faces) {
-    const cls = f.kind === 'glass' ? 'f-glass' : f.kind === 'door' ? 'f-door' : 'f';
-    prims.push({ t: 'poly', rings: f.rings, cls, fill: f.kind === 'glass' || f.kind === 'door' ? undefined : shade(f.kind, f.light) });
+    const cls = f.kind === 'glass' ? 'f-glass' : f.kind === 'door' ? 'f-door' : f.kind === 'roldeur' ? 'f-roll' : 'f';
+    const decal = f.kind === 'glass' || f.kind === 'door' || f.kind === 'roldeur';
+    prims.push({ t: 'poly', rings: f.rings, cls, fill: decal ? undefined : shade(f.kind, f.light) });
+    if (f.kind === 'roldeur' && f.rings[0].length === 4) {
+      // Horizontal slats about every 25 cm (bottom-left, bottom-right, top-right, top-left).
+      const [bl, br, tr, tl] = f.rings[0];
+      const h = Math.hypot(tl.x - bl.x, tl.y - bl.y);
+      const n = Math.max(2, Math.round(h / 0.25));
+      for (let i = 1; i < n; i++) {
+        const t = i / n;
+        prims.push({
+          t: 'line',
+          pts: [
+            { x: bl.x + (tl.x - bl.x) * t, y: bl.y + (tl.y - bl.y) * t },
+            { x: br.x + (tr.x - br.x) * t, y: br.y + (tr.y - br.y) * t },
+          ],
+          cls: 'slat',
+        });
+      }
+    }
   }
   if (labels) {
     // Names of frontal openings, when there is room for them (drawn last so nothing covers them).
@@ -46,7 +65,7 @@ function projectedPrims(faces: Projected[], labels = true): Prim[] {
         t: 'text',
         at: { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 },
         text: f.name,
-        cls: f.kind === 'door' ? 'label on-dark' : 'label muted',
+        cls: f.kind === 'door' || f.kind === 'roldeur' ? 'label on-dark' : 'label muted',
         size: 2,
       });
     }
@@ -76,20 +95,42 @@ export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
     const b2 = { x: o.b.x + out.x, y: o.b.y + out.y };
     prims.push({ t: 'poly', rings: [[o.a, o.b, b2, a2]], cls: 'gap' });
     prims.push({ t: 'line', pts: [o.a, a2], cls: 'sym' }, { t: 'line', pts: [o.b, b2], cls: 'sym' });
-    if (o.door) {
-      // Leaf open at 90° into the room, hinged at the first edge, with the swing.
-      const leaf = { x: o.a.x + o.inward.x * o.width, y: o.a.y + o.inward.y * o.width };
-      prims.push({ t: 'line', pts: [o.a, leaf], cls: 'sym' });
-      const u = { x: (o.b.x - o.a.x) / o.width, y: (o.b.y - o.a.y) / o.width };
+    if (o.style === 'deur') {
+      // Leaf open at 90°, hinged on the face of the wall it opens to, with the swing.
+      const inwards = o.swing !== 'buiten';
+      const towards = inwards ? o.inward : { x: -o.inward.x, y: -o.inward.y };
+      const [p, q] = inwards ? [o.a, o.b] : [a2, b2];
+      const hinge = o.hingeAt === 'a' ? p : q;
+      const other = o.hingeAt === 'a' ? q : p;
+      const leaf = { x: hinge.x + towards.x * o.width, y: hinge.y + towards.y * o.width };
+      prims.push({ t: 'line', pts: [hinge, leaf], cls: 'sym' });
+      const u = { x: (other.x - hinge.x) / o.width, y: (other.y - hinge.y) / o.width };
       const arc: Point[] = [];
       for (let i = 0; i <= 16; i++) {
         const t = (i / 16) * (Math.PI / 2);
         arc.push({
-          x: o.a.x + (o.inward.x * Math.cos(t) + u.x * Math.sin(t)) * o.width,
-          y: o.a.y + (o.inward.y * Math.cos(t) + u.y * Math.sin(t)) * o.width,
+          x: hinge.x + (towards.x * Math.cos(t) + u.x * Math.sin(t)) * o.width,
+          y: hinge.y + (towards.y * Math.cos(t) + u.y * Math.sin(t)) * o.width,
         });
       }
       prims.push({ t: 'line', pts: arc, cls: 'sym-thin' });
+    } else if (o.style === 'roldeur') {
+      // Overhead roller door: the curtain in the wall, the coil box inside along the top (dashed).
+      const m = 0.5;
+      prims.push({
+        t: 'line',
+        pts: [
+          { x: o.a.x + out.x * m, y: o.a.y + out.y * m },
+          { x: o.b.x + out.x * m, y: o.b.y + out.y * m },
+        ],
+        cls: 'sym',
+      });
+      const box = 0.35;
+      const ai = { x: o.a.x + o.inward.x * box, y: o.a.y + o.inward.y * box };
+      const bi = { x: o.b.x + o.inward.x * box, y: o.b.y + o.inward.y * box };
+      prims.push({ t: 'line', pts: [o.a, ai, bi, o.b], cls: 'sym-thin' });
+      const mid = { x: (ai.x + bi.x) / 2 + o.inward.x * 0.35, y: (ai.y + bi.y) / 2 + o.inward.y * 0.35 };
+      prims.push({ t: 'text', at: mid, text: 'roldeur ↑', cls: 'label-sub', size: 2 });
     } else {
       const m = 0.5;
       prims.push({ t: 'line', pts: [o.a, o.b, b2, a2], cls: 'sym', closed: true });
@@ -278,7 +319,7 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
   faces.forEach((f, i) => {
     if (f.kind !== 'facade' && f.kind !== 'dormer' && f.kind !== 'flat' && f.kind !== 'roof') return;
     for (const p of f.rings[0]) {
-      const hidden = faces.slice(i + 1).some((g) => g.kind !== 'glass' && g.kind !== 'door' && pointInPolygon(p, g.rings[0], -0.01));
+      const hidden = faces.slice(i + 1).some((g) => g.kind !== 'glass' && g.kind !== 'door' && g.kind !== 'roldeur' && pointInPolygon(p, g.rings[0], -0.01));
       if (!hidden) heights.add(Math.round(p.y * 1e4) / 1e4);
     }
   });

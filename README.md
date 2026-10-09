@@ -9,7 +9,7 @@ Angular-app om op de bouwplaats maten vast te leggen en door te rekenen. Bedoeld
 | **Hoek** | Drie maten vanaf de hoek: a langs muur 1, b langs muur 2, c tussen de strepen | Hoek, afwijking van haaks, wat c bij 90° zou zijn, uit-het-haaks in mm |
 | **Vorm / ruimte** | Zijden + diagonalen vanaf hoekpunt 1, óf zijden + hoeken (laatste zijde = controlemaat; 180° mag, voor een punt onder de nok) | Hoeken, vloeroppervlak, omtrek, plattegrond op schaal |
 | ↳ ruimte | Eén wandhoogte, of een hoogte per hoekpunt (schuin plafond, nok) | Inhoud, wandoppervlak bruto/netto, tabel per wand, plafond langs de helling, **draaibare 3D-weergave** |
-| ↳ openingen | Deur/raam: wand, afstand vanaf de hoek, breedte, hoogte, borstwering | Netto oppervlak per wand; controle of hij past (lengte, hoogte op die plek, overlap) |
+| ↳ openingen | Deur/raam/roldeur/schuifpui: wand, afstand vanaf de hoek, breedte, hoogte, borstwering; bij een draaideur naar binnen of buiten en DIN-links/rechts | Netto oppervlak per wand; controle of hij past (lengte, hoogte op die plek, overlap) |
 | **Dak & spant** | Zadeldak: overspanning, muurhoogte links/rechts, en **twee** van: helling links/rechts, spar links/rechts, nokhoogte, nokpositie. Lessenaarsdak: helling uit twee muurhoogtes of één waarde. Mansardekap: onderdak (2 waarden) + bovendak (1 waarde). Overstek goot en kopgevels, daklengte | Hellingen (° en %), sparlengtes met/zonder overstek, nokhoogte, lengte gordingen en nok, gevelvlak, dakoppervlak per dakvlak |
 | **Driehoek** | Drie willekeurige waarden (minstens één zijde) | Alle zijden, hoeken, hoogte, oppervlakte; beide oplossingen als die er zijn |
 | **Plattegrond** | Ruimtes tegen elkaar, muurdiktes, trapgat, verdieping, kappen (ook over een uitbouw), dakkapellen, dakramen | Plattegrond, 3D, gevels met maten, buitenmaat-controle, A4-print |
@@ -70,7 +70,7 @@ src/app/
 ```bash
 npm install --legacy-peer-deps   # npm 10 struikelt anders over een peer-dependency
 npm start                        # http://localhost:4200, /api gaat naar de backend op :5094
-npm test -- --watch=false        # Vitest, 151 tests
+npm test -- --watch=false        # Vitest, 155 tests
 npm run build                    # dist/bouwplannen-frontend/browser, statisch te hosten
 ```
 

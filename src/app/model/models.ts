@@ -43,6 +43,12 @@ export interface OpeningEntry {
   offset?: string;
   /** Height of the bottom edge above the floor ('0' for a door). */
   sill?: string;
+  /** Kind: hinged door, roller door (opens upwards), sliding glass door or window. Empty: from the name. */
+  type?: '' | 'deur' | 'roldeur' | 'schuif' | 'raam';
+  /** Hinged door: opens into this room or to the other side (outside or the neighbouring room). */
+  swing?: '' | 'binnen' | 'buiten';
+  /** Hinged door: hinges left or right, seen from the side the door opens towards (DIN). */
+  hinge?: '' | 'links' | 'rechts';
 }
 
 /** Any flat shape: floor plan, gable wall, plate. */

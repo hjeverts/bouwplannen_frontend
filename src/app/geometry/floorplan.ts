@@ -19,7 +19,22 @@ export type { DormerInput, P3, PlacedDormer, PlacedRoof, PlacedRoofWindow, PlanR
 
 const MM = 0.001;
 
-export interface PlanOpeningInput {
+/** How an opening is drawn: a hinged door, an overhead roller door, a sliding glass door or a window. */
+export type OpeningStyle = 'deur' | 'roldeur' | 'schuif' | 'raam';
+
+export interface OpeningOptions {
+  /** Kind of opening; when absent it follows from the name ("deur", "roldeur", "schuifpui", "raam"). */
+  type?: OpeningStyle | null;
+  /** Hinged door: opens into this room ('binnen') or to the other side ('buiten'). */
+  swing?: 'binnen' | 'buiten' | null;
+  /**
+   * Hinged door, DIN: hinges on the left or right, seen from the side the door opens towards.
+   * When absent the hinges are at the end nearest the wall's first corner.
+   */
+  hinge?: 'links' | 'rechts' | null;
+}
+
+export interface PlanOpeningInput extends OpeningOptions {
   name: string;
   wall: number;
   offset: number;
@@ -99,9 +114,10 @@ export interface PlanInput {
   flatThickness?: number;
 }
 
-export interface WallOpening {
+export interface WallOpening extends OpeningOptions {
   name: string;
   door: boolean;
+  style: OpeningStyle;
   /** Along this wall, from its first corner to the near edge. */
   offset: number;
   width: number;
@@ -154,7 +170,13 @@ export interface PlacedRoom {
 /** A door or window in the plan, on the inside face of its own room's wall. */
 export interface PlanOpening {
   name: string;
+  /** Hinged or roller door (drawn as a door, not as glass). */
   door: boolean;
+  style: OpeningStyle;
+  /** Hinged door: where the leaf turns. Into the room means towards `inward`. */
+  swing: 'binnen' | 'buiten';
+  /** Hinged door: the end with the hinges (a or b). */
+  hingeAt: 'a' | 'b';
   room: number;
   wall: number;
   /** Ends on the inside face of the wall. */
@@ -460,9 +482,13 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
     });
     for (const o of r.openings) {
       if (o.wall < 0 || o.wall >= n) continue;
+      const style = openingStyle(o.name, o.sill, o.type);
       walls[o.wall].openings.push({
         name: o.name,
-        door: isDoor(o.name, o.sill),
+        door: style === 'deur' || style === 'roldeur',
+        style,
+        swing: o.swing ?? null,
+        hinge: o.hinge ?? null,
         offset: o.offset,
         width: o.width,
         height: o.height,
@@ -522,9 +548,13 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
       const nb = w.neighbours.find((x) => mid >= x.from - MM && mid <= x.to + MM);
       const a = add(w.from, mul(w.dir, o.offset));
       const b = add(w.from, mul(w.dir, o.offset + o.width));
+      const swing = o.swing === 'buiten' ? 'buiten' : 'binnen';
       openings.push({
         name: o.name,
         door: o.door,
+        style: o.style,
+        swing,
+        hingeAt: hingeEnd(a, b, swing === 'binnen' ? w.inward : mul(w.inward, -1), o.hinge ?? null),
         room: w.room,
         wall: w.index,
         a,
@@ -667,12 +697,28 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
   };
 }
 
-function isDoor(name: string, sill: number): boolean {
+/** Kind of opening: as chosen, or guessed from its name and sill. */
+export function openingStyle(name: string, sill: number, type?: OpeningStyle | null): OpeningStyle {
+  if (type) return type;
+  if (/rol|overhead|sectiona|garage/i.test(name)) return 'roldeur';
   // A sliding glass door (schuifpui) is drawn as glass, without a swing.
-  if (/pui|schuif/i.test(name)) return false;
-  if (/deur|door|poort/i.test(name)) return true;
-  if (/raam|venster|window|kozijn/i.test(name)) return false;
-  return sill < 0.05;
+  if (/pui|schuif/i.test(name)) return 'schuif';
+  if (/deur|door|poort/i.test(name)) return 'deur';
+  if (/raam|venster|window|kozijn/i.test(name)) return 'raam';
+  return sill < 0.05 ? 'deur' : 'raam';
+}
+
+/**
+ * End of a door opening a–b with the hinges. DIN left/right is seen from the side the door opens
+ * towards: standing there and facing the door, the hinges are on your left or right hand.
+ */
+export function hingeEnd(a: Point, b: Point, opensTowards: Point, hinge: 'links' | 'rechts' | null): 'a' | 'b' {
+  if (!hinge) return 'a';
+  // Facing the door from the side it opens to: you look against `opensTowards`.
+  const facing = mul(opensTowards, -1);
+  const left = { x: -facing.y, y: facing.x };
+  const bIsLeft = dot(sub(b, a), left) > 0;
+  return (hinge === 'links') === bIsLeft ? 'b' : 'a';
 }
 
 function polygonCentroid(points: Point[]): Point | null {

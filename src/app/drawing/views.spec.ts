@@ -379,3 +379,53 @@ describe('drawings', () => {
     expect(inside.prims.some((p) => p.t === 'text' && p.text === 'Hal')).toBe(true);
   });
 });
+
+describe('door symbols', () => {
+  it('draws the swing on the side the door opens to, and a roller door with its coil box and slats', () => {
+    const rect = [
+      { x: 0, y: 0 },
+      { x: 3, y: 0 },
+      { x: 3, y: 4 },
+      { x: 0, y: 4 },
+    ];
+    const mk = (swing: 'binnen' | 'buiten') =>
+      buildFloorPlan({
+        rooms: [
+          {
+            id: 'g',
+            name: 'Garage',
+            points: rect,
+            heights: [2.6],
+            volume: null,
+            mirror: false,
+            link: null,
+            openings: [
+              { name: 'deur', wall: 1, offset: 1, width: 0.9, height: 2.1, sill: 0, swing },
+              { name: 'roldeur', wall: 0, offset: 0.3, width: 2.4, height: 2.2, sill: 0 },
+            ],
+          },
+        ],
+        outerWall: 0.3,
+        measuredWidth: null,
+        measuredDepth: null,
+        turn: 0,
+        roofs: [],
+      });
+    const swingX = (swing: 'binnen' | 'buiten') => {
+      const v = planView(mk(swing), { roomDims: false });
+      // The quarter-circle of the door: the thin line with 17 points.
+      const arc = v.prims.find((p) => p.t === 'line' && p.cls === 'sym-thin' && p.pts.length === 17) as { pts: { x: number }[] };
+      return Math.max(...arc.pts.map((p) => p.x));
+    };
+    // Right wall at x = 3,3 (inside face) / 3,6 (outside face): inwards the swing stays left of it, outwards right.
+    expect(swingX('binnen')).toBeLessThan(3.31);
+    expect(swingX('buiten')).toBeGreaterThan(3.61);
+    const plan = mk('binnen');
+    expect(planView(plan).prims.some((p) => p.t === 'text' && p.text === 'roldeur ↑')).toBe(true);
+    const levels = stackLevels([{ id: 'g', name: 'Garage', plan, below: null, floorThickness: 0.3, dx: 0, dy: 0 }], 'g');
+    const front = elevationView(levels, 'voor');
+    expect(front.prims.some((p) => p.t === 'poly' && p.cls === 'f-roll')).toBe(true);
+    expect(front.prims.filter((p) => p.t === 'line' && p.cls === 'slat').length).toBeGreaterThan(5);
+  });
+});
+

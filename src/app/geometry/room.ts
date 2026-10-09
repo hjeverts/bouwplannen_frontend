@@ -6,6 +6,10 @@ import { GeometryError, Point, PolygonAnalysis } from './geometry';
 
 export interface OpeningInput {
   name: string;
+  /** Kind, swing and hinge side of a door (only used for drawing). */
+  type?: 'deur' | 'roldeur' | 'schuif' | 'raam' | null;
+  swing?: 'binnen' | 'buiten' | null;
+  hinge?: 'links' | 'rechts' | null;
   /** Wall index (wall i runs from corner i to corner i+1), or null when not placed on a wall. */
   wall: number | null;
   /** Distance from the wall's first corner to the near edge of the opening, along the wall. */

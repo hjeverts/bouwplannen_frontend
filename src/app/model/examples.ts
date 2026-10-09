@@ -63,7 +63,7 @@ export function exampleHouse(): Project {
     sill: nl(sill),
   });
   const woon = rectRoom('vw-woon', 'Woonkamer', 5, 7.4, 2.6, [o('raam voor', 0, 1, 2.4, 1.5, 0.8), o('schuifpui', 2, 0.8, 3, 2.2)]);
-  const hal = rectRoom('vw-hal', 'Hal', 3.1, 3.7, 2.6, [o('voordeur', 0, 1.1, 1, 2.3), o('deur woonkamer', 3, 0.8, 0.93, 2.115), o('deur keuken', 2, 0.4, 0.83, 2.115)]);
+  const hal = rectRoom('vw-hal', 'Hal', 3.1, 3.7, 2.6, [{ ...o('voordeur', 0, 1.1, 1, 2.3), hinge: 'rechts' }, { ...o('deur woonkamer', 3, 0.8, 0.93, 2.115), swing: 'buiten', hinge: 'links' }, o('deur keuken', 2, 0.4, 0.83, 2.115)]);
   const keuken = rectRoom('vw-keuken', 'Keuken', 3.1, 3.6, 2.6, [o('raam keuken', 2, 0.8, 1.5, 1.2, 1)]);
   const slk1 = rectRoom('vw-slk1', 'Slaapkamer 1', 4.6, 3.65, 2.5, [o('raam', 0, 1.4, 1.8, 1.3, 0.9)]);
   const slk2 = rectRoom('vw-slk2', 'Slaapkamer 2', 4.6, 3.65, 2.5, [o('raam', 2, 1.4, 1.8, 1.3, 0.9), o('deur', 1, 0.3, 0.83, 2.115)]);

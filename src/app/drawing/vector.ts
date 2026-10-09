@@ -245,6 +245,8 @@ export function drawingStyle(k: number): string {
 .bp .bp-ground{fill:none;stroke:currentColor;stroke-width:${w(0.5)}}
 .bp .bp-f{stroke:var(--ink,#1d2321);stroke-width:${w(0.18)};stroke-linejoin:round}
 .bp .bp-f-glass{fill:#8fb3c9;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
+.bp .bp-f-roll{fill:#7c858a;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
+.bp .bp-slat{fill:none;stroke:#e6e9e4;stroke-opacity:.7;stroke-width:${w(0.1)}}
 .bp .bp-f-door{fill:#7a5a40;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
 .bp .bp-dim-line{fill:none;stroke:var(--dim,#1f5f8b);stroke-width:${w(0.15)}}
 .bp .bp-dim-text{fill:var(--dim,#1f5f8b)}

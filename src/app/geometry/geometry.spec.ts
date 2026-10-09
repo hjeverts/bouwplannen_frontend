@@ -257,7 +257,13 @@ describe('polygonFromAngles', () => {
 
   it('validates input', () => {
     expect(() => polygonFromAngles([4, 3, 4, 3], [90])).toThrowError(GeometryError);
-    expect(() => polygonFromAngles([4, 3, 4, 3], [90, 180])).toThrowError(GeometryError);
+    expect(() => polygonFromAngles([4, 3, 4, 3], [90, 360])).toThrowError(GeometryError);
+  });
+
+  it('allows a straight 180° corner (point under a ridge)', () => {
+    const r = polygonFromAngles([2, 2, 3, 4, 3], [180, 90, 90]);
+    close(r.area, 12);
+    close(r.misclosure!, 0);
   });
 });
 
@@ -298,11 +304,65 @@ describe('roofSection', () => {
   });
 
   it('validates input', () => {
-    expect(() => roofSection({ type: 'zadeldak', span: 8 })).toThrowError(/precies één/);
-    expect(() => roofSection({ type: 'zadeldak', span: 8, rise: 3, pitch: 30 })).toThrowError(GeometryError);
-    expect(() => roofSection({ type: 'zadeldak', span: 8, rafter: 3 })).toThrowError(/sparlengte/);
+    expect(() => roofSection({ type: 'zadeldak', span: 8 })).toThrowError(/twee waarden/);
+    expect(() => roofSection({ type: 'zadeldak', span: 8, rise: 3, pitch: 30, rafter: 5 })).toThrowError(/precies twee/);
+    expect(() => roofSection({ type: 'zadeldak', span: 8, rafter: 3 })).toThrowError(/spar is te kort/);
     expect(() => roofSection({ type: 'zadeldak', span: 8, pitch: 90 })).toThrowError(GeometryError);
     expect(() => roofSection({ type: 'zadeldak', span: 8, rise: 3, ridgeOffset: 9 })).toThrowError(GeometryError);
+    expect(() => roofSection({ type: 'lessenaarsdak', span: 4 })).toThrowError(/één van deze/);
+  });
+
+  it('two pitches place the ridge themselves', () => {
+    // 8 m span, 45° left, atan(0,5) right: ridge where x = (8 − x) / 2 → x = 8/3.
+    const pR = (Math.atan(0.5) * 180) / Math.PI;
+    const r = roofSection({ type: 'zadeldak', span: 8, pitch: 45, pitchRight: pR });
+    close(r.ridge.x, 8 / 3, 6);
+    close(r.rise, 8 / 3, 6);
+    close(r.left.pitch, 45, 6);
+    close(r.right!.pitch, pR, 6);
+    expect(r.ridgeAssumedCentre).toBe(false);
+  });
+
+  it('shed with a higher front wall: walls 3,0 and 2,4, both pitches', () => {
+    const r = roofSection({ type: 'zadeldak', span: 6, wallLeft: 3, wallRight: 2.4, pitch: 40, pitchRight: 25 });
+    const tl = Math.tan((40 * Math.PI) / 180);
+    const tr = Math.tan((25 * Math.PI) / 180);
+    const x = (2.4 - 3 + 6 * tr) / (tl + tr);
+    close(r.ridge.x, x, 6);
+    close(r.rise, 3 + x * tl, 6);
+    close(r.left.rise, x * tl, 6);
+    close(r.right!.rise, 3 + x * tl - 2.4, 6);
+    expect(r.fromFloor).toBe(true);
+    // Gable from the floor: 5-sided outline.
+    expect(r.outline.length).toBe(5);
+    close(r.gableArea, x * 3 + ((6 - x) * 2.4) + (x * (r.rise - 3)) / 2 + ((6 - x) * (r.rise - 2.4)) / 2 - (0), 6);
+  });
+
+  it('ridge height plus one pitch, and rafter pairs', () => {
+    const a = roofSection({ type: 'zadeldak', span: 8, rise: 3, pitch: Math.atan(3 / 4) * (180 / Math.PI) });
+    close(a.ridge.x, 4, 6);
+    const b = roofSection({ type: 'zadeldak', span: 8, rafter: 5, rafterRight: 5 });
+    close(b.ridge.x, 4, 6);
+    close(b.rise, 3, 6);
+    const c = roofSection({ type: 'zadeldak', span: 10, rafter: 5, rise: 3 });
+    close(c.ridge.x, 4, 6);
+  });
+
+  it('one value with unequal walls is not enough', () => {
+    expect(() => roofSection({ type: 'zadeldak', span: 6, wallLeft: 3, wallRight: 2.4, pitch: 35 })).toThrowError(/twee waarden/);
+    expect(() => roofSection({ type: 'zadeldak', span: 6, wallLeft: 3, wallRight: 2.4, pitch: 10, rise: 2 })).toThrowError(/komen de dakvlakken niet/);
+    // They meet, but below the higher (right) wall plate.
+    expect(() => roofSection({ type: 'zadeldak', span: 6, wallLeft: 2.4, wallRight: 3, pitch: 10, rise: 2.6 })).toThrowError(/hoger liggen/);
+  });
+
+  it('lean-to between two wall heights', () => {
+    const r = roofSection({ type: 'lessenaarsdak', span: 4, wallLeft: 2.2, wallRight: 3 });
+    close(r.left.rise, 0.8, 9);
+    close(r.rise, 3, 9);
+    close(r.gableArea, 4 * 2.6, 9);
+    expect(() => roofSection({ type: 'lessenaarsdak', span: 4, wallLeft: 2.2, wallRight: 3, pitch: 10 })).toThrowError(/muurhoogtes/);
+    const down = roofSection({ type: 'lessenaarsdak', span: 4, wallLeft: 3, wallRight: 2.2 });
+    close(down.ridge.x, 0, 9);
   });
 });
 

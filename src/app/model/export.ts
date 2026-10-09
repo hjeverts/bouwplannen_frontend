@@ -1,4 +1,4 @@
-import { Point } from '../geometry/geometry';
+import { Point, RoofSide } from '../geometry/geometry';
 import { formatAngle, formatArea, formatLength, formatPercent, formatVolume } from '../geometry/units';
 import { computeDak, computeDriehoek, computeHoek, computeMaten, computeVorm } from './compute';
 import { Item, KIND_LABELS, Project } from './models';
@@ -82,39 +82,34 @@ export function summarize(item: Item): [string, string][] {
       const out: [string, string][] = [];
       shape.sides.forEach((s, i) => out.push([`Zijde ${i + 1}`, formatLength(s)]));
       shape.angles.forEach((a, i) => out.push([`Hoek ${i + 1}`, formatAngle(a, 2)]));
-      out.push(['Oppervlakte', formatArea(room.floorArea)], ['Omtrek', formatLength(shape.perimeter)]);
-      if (room.volume !== null) out.push(['Inhoud', formatVolume(room.volume)], ['Wandoppervlak netto', formatArea(room.netWallArea)]);
+      out.push(['Oppervlakte', formatArea(shape.area)], ['Omtrek', formatLength(shape.perimeter)]);
+      if (room) {
+        out.push(['Inhoud', formatVolume(room.volume)], ['Wandoppervlak bruto', formatArea(room.wallArea)], ['Wandoppervlak netto', formatArea(room.netWallArea)]);
+        room.walls.forEach((w, i) => out.push([`Wand ${i + 1}–${((i + 1) % room.walls.length) + 1} netto`, formatArea(w.netArea)]));
+        if (room.sloped) out.push(['Plafond langs de helling', formatArea(room.ceilingArea)]);
+      }
       return out;
     }
     case 'dak': {
       const r = computeDak(item);
       if (r.status !== 'ok') return [['Status', r.message]];
-      const { roof } = r.value;
-      if (roof.upper) {
-        return [
-          ['Nokhoogte', formatLength(roof.rise)],
-          ['Knikhoogte', formatLength(roof.knee!.y)],
-          ['Helling onderdak', `${formatAngle(roof.left.pitch, 2)} (${formatPercent(roof.left.pitchPercent)})`],
-          ['Spar onderdak', formatLength(roof.left.rafter)],
-          ['Spar onderdak incl. overstek', formatLength(roof.left.rafterWithOverhang)],
-          ['Helling bovendak', `${formatAngle(roof.upper.pitch, 2)} (${formatPercent(roof.upper.pitchPercent)})`],
-          ['Spar bovendak', formatLength(roof.upper.rafter)],
-          ['Gevelvlak', formatArea(roof.gableArea)],
-        ];
-      }
-      const out: [string, string][] = [
-        ['Nokhoogte', formatLength(roof.rise)],
-        ['Dakhelling', `${formatAngle(roof.left.pitch, 2)} (${formatPercent(roof.left.pitchPercent)})`],
-        ['Sparlengte', formatLength(roof.left.rafter)],
-        ['Sparlengte incl. overstek', formatLength(roof.left.rafterWithOverhang)],
+      const { roof, purlinLength, surfaceLeft, surfaceRight } = r.value;
+      const slope = (label: string, sd: RoofSide): [string, string][] => [
+        [`Helling ${label}`, `${formatAngle(sd.pitch, 2)} (${formatPercent(sd.pitchPercent)})`],
+        [`Spar ${label}`, formatLength(sd.rafter)],
+        [`Spar ${label} incl. overstek`, formatLength(sd.rafterWithOverhang)],
       ];
-      if (roof.right) {
-        out.push(
-          ['Dakhelling rechts', `${formatAngle(roof.right.pitch, 2)} (${formatPercent(roof.right.pitchPercent)})`],
-          ['Sparlengte rechts incl. overstek', formatLength(roof.right.rafterWithOverhang)],
-        );
+      const out: [string, string][] = [['Nokhoogte', formatLength(roof.rise)]];
+      if (roof.upper && roof.knee) {
+        out.push(['Knikhoogte', formatLength(roof.knee.y)], ...slope('onderdak', roof.left), ...slope('bovendak', roof.upper));
+      } else if (roof.type === 'zadeldak' && roof.right) {
+        out.push(['Nok vanaf muur links', formatLength(roof.ridge.x)], ...slope('links', roof.left), ...slope('rechts', roof.right));
+      } else {
+        out.push(...slope('', roof.left).map(([k, v]) => [k.replace('  ', ' ').trim(), v] as [string, string]));
       }
+      if (purlinLength !== null) out.push(['Gordingen en nok', formatLength(purlinLength)]);
       out.push(['Gevelvlak', formatArea(roof.gableArea)]);
+      if (surfaceLeft !== null) out.push(['Dakoppervlak', formatArea(surfaceLeft + (surfaceRight ?? 0))]);
       return out;
     }
     case 'maten': {

@@ -973,6 +973,211 @@ textarea {
   padding: 8px;
 }
 
+/* ---------- Room: openings, wall table, 3D ---------- */
+
+.field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.room-fields,
+.room-hint {
+  margin-top: 12px;
+}
+
+.opening-card {
+  padding: 12px 12px 2px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--paper);
+}
+
+.opening-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.opening-head .icon-btn {
+  margin-top: 0;
+}
+
+.opening-fields {
+  margin-block: 10px 0;
+}
+
+.opening-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.result-col,
+.drawing-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.segmented--small button {
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 14px;
+}
+
+.drawing-col .segmented--small {
+  align-self: flex-start;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.walls {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.walls caption {
+  text-align: left;
+  font: 600 13px/1.4 var(--font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-bottom: 6px;
+}
+
+.walls th,
+.walls td {
+  padding: 6px 8px 6px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+  font: 500 14px/1.3 var(--font-num);
+}
+
+.walls thead th {
+  font: 500 13px/1.3 var(--font-body);
+  color: var(--muted);
+}
+
+.walls th:first-child {
+  text-align: left;
+  color: var(--dim);
+}
+
+.walls .sub {
+  display: block;
+  font: 400 12px/1.2 var(--font-body);
+  color: var(--muted);
+}
+
+.r3d {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawing--3d {
+  touch-action: none;
+  cursor: grab;
+  background-image: none;
+}
+
+.drawing--3d:active {
+  cursor: grabbing;
+}
+
+.r3d-floor {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.r3d-wall-far {
+  fill: color-mix(in srgb, var(--surface) 88%, var(--ink));
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.r3d-wall-near {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1;
+  stroke-dasharray: 5 5;
+  opacity: 0.55;
+}
+
+.r3d-ceiling {
+  fill: none;
+  stroke: var(--dim);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 5;
+  opacity: 0.8;
+}
+
+.r3d-label {
+  font: 600 14px var(--font-body);
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.r3d-label--corner {
+  fill: var(--muted);
+}
+
+.r3d-label--opening {
+  fill: var(--dim);
+  font-size: 13px;
+}
+
+.r3d-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.r3d-range {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.r3d-range input {
+  width: 100%;
+  accent-color: var(--ink);
+}
+
+@media (max-width: 600px) {
+  .opening-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .opening-head .field:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .r3d-label {
+    font-size: 22px;
+  }
+}
+
 /* ---------- Narrow screens ---------- */
 
 @media (max-width: 960px) {

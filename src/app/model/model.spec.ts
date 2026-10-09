@@ -30,8 +30,8 @@ describe('compute', () => {
     const r = computeVorm(item);
     expect(r.status).toBe('ok');
     if (r.status === 'ok') {
-      expect(r.value.room.floorArea).toBeCloseTo(12, 9);
-      expect(r.value.room.netWallArea!).toBeCloseTo(35 - 1.89, 9);
+      expect(r.value.room!.floorArea).toBeCloseTo(12, 9);
+      expect(r.value.room!.netWallArea).toBeCloseTo(35 - 1.89, 9);
     }
     const viaAngles = computeVorm({ ...item, method: 'hoeken', angles: ['90', '90'], sides: ['4', '3', '4', ''] });
     expect(viaAngles.status).toBe('ok');
@@ -70,6 +70,31 @@ describe('compute', () => {
     delete legacy.lowerRun;
     delete legacy.lowerRise;
     expect(computeDak(legacy as DakItem).status).toBe('incomplete');
+  });
+
+  it('zadeldak: gable overhang lengthens purlins and the roof surface', () => {
+    const item = { ...(createItem('dak') as DakItem), span: '8', rise: '3', overhang: '0,4', length: '10', gableOverhang: '0,3' };
+    const r = computeDak(item);
+    expect(r.status).toBe('ok');
+    if (r.status === 'ok') {
+      expect(r.value.purlinLength).toBeCloseTo(10.6, 9);
+      const rafter = 5 + 0.4 / 0.8; // 0,4 m level overhang along a 3:4 slope
+      expect(r.value.roof.left.rafterWithOverhang).toBeCloseTo(rafter, 9);
+      expect(r.value.surfaceLeft).toBeCloseTo(rafter * 10.6, 9);
+    }
+    expect(computeDak({ ...item, gableOverhang: '-1' }).status).toBe('error');
+  });
+
+  it('zadeldak: left and right pitch with different wall heights', () => {
+    const item = { ...(createItem('dak') as DakItem), span: '6', wallLeft: '3', wallRight: '2,4', pitch: '40', pitchRight: '25' };
+    const r = computeDak(item);
+    expect(r.status).toBe('ok');
+    if (r.status === 'ok') {
+      expect(r.value.roof.left.pitch).toBeCloseTo(40, 9);
+      expect(r.value.roof.right!.pitch).toBeCloseTo(25, 9);
+      expect(r.value.roof.fromFloor).toBe(true);
+    }
+    expect(computeDak({ ...item, pitchRight: '' })).toEqual({ status: 'incomplete', message: expect.stringContaining('tweede waarde') });
   });
 
   it('dak with roof length gives surfaces', () => {

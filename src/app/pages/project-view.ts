@@ -135,10 +135,14 @@ export class ProjectView {
     const rows = summarize(item);
     if (rows.length === 0) return '';
     if (rows[0][0] === 'Status') return 'Nog niet compleet';
-    const pick: Partial<Record<ItemKind, string>> = { vorm: 'Oppervlakte', dak: 'Dakhelling', driehoek: 'Oppervlakte', hoek: 'Hoek' };
+    if (item.kind === 'maten') return `${rows.length} maten`;
+    if (item.kind === 'dak') {
+      // Pitches of all slopes, e.g. "40,00° / 25,00°".
+      return rows.filter((r) => r[0].startsWith('Helling')).map((r) => r[1].split(' (')[0]).join(' / ');
+    }
+    const pick: Partial<Record<ItemKind, string>> = { vorm: 'Oppervlakte', driehoek: 'Oppervlakte', hoek: 'Hoek' };
     const wanted = pick[item.kind];
-    const row = (wanted && rows.find((r) => r[0] === wanted)) || rows[0];
-    return item.kind === 'maten' ? `${rows.length} maten` : row[1];
+    return ((wanted && rows.find((r) => r[0] === wanted)) || rows[0])[1];
   }
 
   protected readonly projectExports = computed<ExportOption[]>(() => {

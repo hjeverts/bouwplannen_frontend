@@ -3,18 +3,16 @@ import {
   mansardSection,
   CornerResult,
   GeometryError,
-  Opening,
   polygonFromAngles,
   polygonFromDiagonals,
   PolygonAnalysis,
   roofSection,
   RoofResult,
-  roomTotals,
-  RoomTotals,
   solveTriangle,
   Triangle,
   TraverseResult,
 } from '../geometry/geometry';
+import { analyzeRoom, OpeningInput, RoomResult } from '../geometry/room';
 import { parseAngle, parseLength } from '../geometry/units';
 import { DakItem, DriehoekItem, HoekItem, Item, MatenItem, VormItem } from './models';
 
@@ -80,7 +78,11 @@ export function computeDriehoek(item: DriehoekItem): Outcome<Triangle[]> {
 
 export interface VormResult {
   shape: PolygonAnalysis | TraverseResult;
-  room: RoomTotals;
+  /** Walls, volume and openings; null until heights are filled in. */
+  room: RoomResult | null;
+  /** Why there is no room result yet (incomplete heights) or what is wrong with it (error). */
+  roomMessage: string | null;
+  roomError: boolean;
 }
 
 export function computeVorm(item: VormItem): Outcome<VormResult> {
@@ -100,35 +102,72 @@ export function computeVorm(item: VormItem): Outcome<VormResult> {
       if (missing > 0) return incomplete(`Nog ${missing} waarde${missing === 1 ? '' : 'n'} in te vullen. De laatste zijde is een controlemaat en mag leeg blijven.`);
       shape = polygonFromAngles(sides, angles as number[]);
     }
-    const height = len(item.height, 'Hoogte');
-    const openings: Opening[] = [];
-    item.openings.forEach((o, i) => {
-      const w = len(o.width, `Opening ${i + 1} breedte`);
-      const h = len(o.height, `Opening ${i + 1} hoogte`);
-      if (w !== null && h !== null) openings.push({ width: w, height: h });
-    });
-    return { status: 'ok', value: { shape, room: roomTotals(shape, height, openings) } };
+    return { status: 'ok', value: { shape, ...computeRoom(item, shape) } };
   });
+}
+
+/** Room part of a shape. Errors here do not hide the floor plan, so they are returned, not thrown. */
+function computeRoom(item: VormItem, shape: PolygonAnalysis): Pick<VormResult, 'room' | 'roomMessage' | 'roomError'> {
+  try {
+    let heights: number[];
+    if (item.heightMode === 'per-hoek') {
+      const values = shape.points.map((_, i) => len(item.heights?.[i] ?? '', `Hoogte bij hoekpunt ${i + 1}`));
+      const missing = values.filter((v) => v === null).length;
+      if (missing === values.length) return { room: null, roomMessage: null, roomError: false };
+      if (missing > 0) return { room: null, roomMessage: `Nog ${missing} hoogte${missing === 1 ? '' : 's'} in te vullen.`, roomError: false };
+      heights = values as number[];
+    } else {
+      const h = len(item.height, 'Wandhoogte');
+      if (h === null) return { room: null, roomMessage: null, roomError: false };
+      heights = [h];
+    }
+    const openings: OpeningInput[] = [];
+    item.openings.forEach((o, i) => {
+      const label = o.name || `Opening ${i + 1}`;
+      const width = len(o.width, `${label}: breedte`);
+      const height = len(o.height, `${label}: hoogte`);
+      if (width === null || height === null) return; // not filled in yet
+      const wall = o.wall === undefined || o.wall === '' ? null : Number(o.wall);
+      openings.push({
+        name: o.name,
+        wall: wall !== null && Number.isInteger(wall) ? wall : null,
+        offset: len(o.offset ?? '', `${label}: afstand vanaf de hoek`),
+        width,
+        height,
+        sill: len(o.sill ?? '', `${label}: borstwering`),
+      });
+    });
+    return { room: analyzeRoom(shape, heights, openings), roomMessage: null, roomError: false };
+  } catch (e) {
+    if (e instanceof GeometryError || e instanceof InputError) return { room: null, roomMessage: e.message, roomError: true };
+    throw e;
+  }
 }
 
 export interface DakResult {
   roof: RoofResult;
-  /** Roof surface per side incl. overhang, when the roof length is known. */
+  /** Length of purlins, ridge and eaves: roof length plus the overhang at both gable ends. */
+  purlinLength: number | null;
+  /** Roof surface per slope, including both overhangs, when the roof length is known. */
   surfaceLeft: number | null;
   surfaceRight: number | null;
 }
 
 export function computeDak(item: DakItem): Outcome<DakResult> {
   return guard(() => {
+    const mansard = item.roofType === 'mansardekap';
     const span = len(item.span, 'Overspanning');
-    const rise = len(item.rise, item.roofType === 'mansardekap' ? 'Hoogte bovendak' : 'Nokhoogte');
-    const pitch = ang(item.pitch, item.roofType === 'mansardekap' ? 'Helling bovendak' : 'Dakhelling');
-    const rafter = len(item.rafter, item.roofType === 'mansardekap' ? 'Lengte bovendak' : 'Sparlengte');
-    const overhang = len(item.overhang, 'Overstek');
+    const rise = len(item.rise, mansard ? 'Hoogte bovendak' : 'Nokhoogte');
+    const pitch = ang(item.pitch, mansard ? 'Helling bovendak' : 'Dakhelling');
+    const rafter = len(item.rafter, mansard ? 'Lengte bovendak' : 'Sparlengte');
+    const overhang = len(item.overhang, 'Overstek goot');
     const length = len(item.length, 'Daklengte');
+    const gableOverhang = len(item.gableOverhang ?? '', 'Overstek kopgevels') ?? 0;
+    if (gableOverhang < 0) return error('De overstek bij de kopgevels kan niet negatief zijn.');
     if (span === null) return incomplete('Vul de overspanning in.');
+    const purlinLength = length === null ? null : length + 2 * gableOverhang;
 
-    if (item.roofType === 'mansardekap') {
+    if (mansard) {
       const lower = {
         run: len(item.lowerRun ?? '', 'Inzet knik'),
         rise: len(item.lowerRise ?? '', 'Knikhoogte'),
@@ -139,20 +178,37 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
       if (lowerGiven < 2) return incomplete(`Vul voor het onderdak nog ${2 - lowerGiven} waarde${lowerGiven === 1 ? '' : 'n'} in.`);
       if ([rise, pitch, rafter].every((v) => v === null)) return incomplete('Vul voor het bovendak de hoogte, helling of lengte in.');
       const roof = mansardSection({ span, lower, upper: { rise, pitch, length: rafter }, overhang });
-      const perSide = length === null ? null : (roof.left.rafterWithOverhang + roof.upper!.rafter) * length;
-      return { status: 'ok', value: { roof, surfaceLeft: perSide, surfaceRight: perSide } };
+      const perSide = purlinLength === null ? null : (roof.left.rafterWithOverhang + roof.upper!.rafter) * purlinLength;
+      return { status: 'ok', value: { roof, purlinLength, surfaceLeft: perSide, surfaceRight: perSide } };
     }
 
-    const ridgeOffset = item.roofType === 'zadeldak' ? len(item.ridgeOffset, 'Afstand tot nok') : null;
-    const given = [rise, pitch, rafter].filter((v) => v !== null).length;
-    if (given === 0) return incomplete('Vul nokhoogte, dakhelling of sparlengte in.');
-    const roof = roofSection({ type: item.roofType, span, rise, pitch, rafter, ridgeOffset, overhang });
+    const isGable = item.roofType === 'zadeldak';
+    const values = {
+      rise,
+      pitch,
+      rafter,
+      pitchRight: isGable ? ang(item.pitchRight ?? '', 'Dakhelling rechts') : null,
+      rafterRight: isGable ? len(item.rafterRight ?? '', 'Spar rechts') : null,
+      ridgeOffset: isGable ? len(item.ridgeOffset, 'Afstand tot nok') : null,
+    };
+    const wallLeft = len(item.wallLeft ?? '', 'Muurhoogte links');
+    const wallRight = len(item.wallRight ?? '', 'Muurhoogte rechts');
+    const given = Object.values(values).filter((v) => v !== null).length;
+    const wallsDiffer = wallLeft !== null && wallRight !== null && Math.abs(wallLeft - wallRight) > 1e-9;
+    if (given === 0 && !(item.roofType === 'lessenaarsdak' && wallsDiffer)) {
+      return incomplete(isGable ? 'Vul twee waarden in, bijvoorbeeld de dakhelling links en rechts.' : 'Vul hoogteverschil, dakhelling of sparlengte in.');
+    }
+    if (isGable && given === 1 && wallsDiffer && values.ridgeOffset === null) {
+      return incomplete('De muren verschillen in hoogte: vul nog een tweede waarde in, zoals de helling aan de andere kant.');
+    }
+    const roof = roofSection({ type: item.roofType as 'zadeldak' | 'lessenaarsdak', span, wallLeft, wallRight, overhang, ...values });
     return {
       status: 'ok',
       value: {
         roof,
-        surfaceLeft: length === null ? null : roof.left.rafterWithOverhang * length,
-        surfaceRight: length === null || !roof.right ? null : roof.right.rafterWithOverhang * length,
+        purlinLength,
+        surfaceLeft: purlinLength === null ? null : roof.left.rafterWithOverhang * purlinLength,
+        surfaceRight: purlinLength === null || !roof.right ? null : roof.right.rafterWithOverhang * purlinLength,
       },
     };
   });

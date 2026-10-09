@@ -332,8 +332,9 @@ export function polygonFromAngles(sides: (number | null)[], angles: number[]): T
   if (angles.length !== n - 2) throw new GeometryError(`Voor ${n} zijden zijn ${n - 2} hoeken nodig (hoek 2 t/m ${n - 1}).`);
   for (let i = 0; i < n - 1; i++) requirePositive(sides[i] ?? NaN, `Zijde ${i + 1}`);
   angles.forEach((a, i) => {
-    if (!Number.isFinite(a) || a <= 0 || a >= 360 || a === 180) {
-      throw new GeometryError(`Hoek ${i + 2} moet tussen 0° en 360° liggen (en niet 180°).`);
+    // 180° is allowed: a straight corner, e.g. the point under a ridge on a gable wall.
+    if (!Number.isFinite(a) || a <= 0 || a >= 360) {
+      throw new GeometryError(`Hoek ${i + 2} moet tussen 0° en 360° liggen.`);
     }
   });
 
@@ -365,11 +366,21 @@ export interface RoofInput {
   type: 'zadeldak' | 'lessenaarsdak';
   /** Horizontal span, wall to wall (outside of the wall plates). */
   span: number;
-  /** Supply exactly one of rise, pitch or rafter. */
+  /**
+   * Wall-plate heights. Leave both empty to work relative to the plates; fill them in (from the
+   * floor) when the walls differ, e.g. a shed with a higher front wall. One filled in = both equal.
+   */
+  wallLeft?: number | null;
+  wallRight?: number | null;
+  /** Ridge height (zadeldak) or height difference (lessenaarsdak), in the same reference as the walls. */
   rise?: number | null;
+  /** Left pitch (lessenaarsdak: the pitch). */
   pitch?: number | null;
+  pitchRight?: number | null;
+  /** Left rafter (lessenaarsdak: the rafter). */
   rafter?: number | null;
-  /** Horizontal distance from the left wall to the ridge (zadeldak only, default: the middle). */
+  rafterRight?: number | null;
+  /** Horizontal distance from the left wall to the ridge (zadeldak). */
   ridgeOffset?: number | null;
   /** Horizontal overhang beyond the wall, measured level. */
   overhang?: number | null;
@@ -377,6 +388,8 @@ export interface RoofInput {
 
 export interface RoofSide {
   run: number;
+  /** Height of the slope: from its wall plate up to the ridge (or knee). */
+  rise: number;
   pitch: number;
   /** Pitch as a percentage (rise per 100 horizontal). */
   pitchPercent: number;
@@ -389,6 +402,7 @@ export interface RoofSide {
 export interface RoofResult {
   type: RoofType;
   span: number;
+  /** Height of the ridge (lessenaarsdak: of the high side), in the reference of the wall heights. */
   rise: number;
   /** Left slope; for a mansard roof the steep lower part (same on both sides). */
   left: RoofSide;
@@ -397,9 +411,18 @@ export interface RoofResult {
   upper: RoofSide | null;
   /** Mansard roof only: left knee point (where the slope changes). */
   knee: Point | null;
-  /** Area of the gable end above wall-plate height. */
+  /** Ridge point (x from the left wall, y height). */
+  ridge: Point;
+  /** Wall-plate heights used (0 when worked relative to the plates). */
+  plateLeft: number;
+  plateRight: number;
+  /** True when wall heights were given, so the outline and gable area start at the floor. */
+  fromFloor: boolean;
+  /** True when only one value was given and the ridge was assumed in the middle. */
+  ridgeAssumedCentre: boolean;
+  /** Area of the gable end: above the plates, or from the floor when wall heights were given. */
   gableArea: number;
-  /** Outline of the gable for drawing, starting at the left wall plate. */
+  /** Outline of the gable end for drawing. */
   outline: Point[];
 }
 
@@ -408,6 +431,7 @@ function side(run: number, rise: number, overhang: number): RoofSide {
   const rafter = Math.hypot(run, rise);
   return {
     run,
+    rise,
     pitch: toDeg(pitchRad),
     pitchPercent: (rise / run) * 100,
     rafter,
@@ -415,48 +439,164 @@ function side(run: number, rise: number, overhang: number): RoofSide {
   };
 }
 
+function requirePitch(p: number, label: string): void {
+  if (p <= 0 || p >= 90) throw new GeometryError(`${label} moet tussen 0° en 90° liggen.`);
+}
+
 export function roofSection(input: RoofInput): RoofResult {
-  requirePositive(input.span, 'De overspanning');
+  const span = input.span;
+  requirePositive(span, 'De overspanning');
   const overhang = has(input.overhang) ? input.overhang : 0;
   if (overhang < 0) throw new GeometryError('De overstek kan niet negatief zijn.');
+  const fromFloor = has(input.wallLeft) || has(input.wallRight);
+  const hL = has(input.wallLeft) ? input.wallLeft : has(input.wallRight) ? input.wallRight : 0;
+  const hR = has(input.wallRight) ? input.wallRight : hL;
+  if (fromFloor) {
+    requirePositive(hL, 'De muurhoogte links');
+    requirePositive(hR, 'De muurhoogte rechts');
+  }
+  return input.type === 'lessenaarsdak' ? leanTo(input, span, hL, hR, overhang, fromFloor) : gable(input, span, hL, hR, overhang, fromFloor);
+}
 
-  const given = [input.rise, input.pitch, input.rafter].filter(has).length;
-  if (given !== 1) throw new GeometryError('Vul precies één van deze in: nokhoogte, dakhelling of sparlengte.');
+function finish(
+  type: RoofType,
+  span: number,
+  ridge: Point,
+  left: RoofSide,
+  right: RoofSide | null,
+  hL: number,
+  hR: number,
+  fromFloor: boolean,
+  ridgeAssumedCentre: boolean,
+  top: Point[],
+): RoofResult {
+  const outline = fromFloor ? [{ x: 0, y: 0 }, ...top, { x: span, y: 0 }] : top;
+  return {
+    type,
+    span,
+    rise: ridge.y,
+    left,
+    right,
+    upper: null,
+    knee: null,
+    ridge,
+    plateLeft: hL,
+    plateRight: hR,
+    fromFloor,
+    ridgeAssumedCentre,
+    gableArea: Math.abs(signedArea(outline)),
+    outline,
+  };
+}
 
-  const isMono = input.type === 'lessenaarsdak';
-  const leftRun = isMono ? input.span : has(input.ridgeOffset) ? input.ridgeOffset : input.span / 2;
-  if (leftRun <= 0 || leftRun > input.span) throw new GeometryError('De nok moet tussen de twee muren liggen.');
-  if (!isMono && leftRun === input.span) throw new GeometryError('Bij een zadeldak moet de nok vóór de rechtermuur liggen.');
-
-  let rise: number;
-  if (has(input.rise)) {
-    requirePositive(input.rise, 'De nokhoogte');
-    rise = input.rise;
-  } else if (has(input.pitch)) {
-    if (input.pitch <= 0 || input.pitch >= 90) throw new GeometryError('De dakhelling moet tussen 0° en 90° liggen.');
-    rise = leftRun * Math.tan(toRad(input.pitch));
+/** Lean-to: one slope from the left wall plate up (or down) to the right wall. */
+function leanTo(input: RoofInput, span: number, hL: number, hR: number, overhang: number, fromFloor: boolean): RoofResult {
+  const values = [input.rise, input.pitch, input.rafter].filter(has).length;
+  let diff: number;
+  if (fromFloor && Math.abs(hR - hL) > 1e-9) {
+    if (values > 0) throw new GeometryError('De twee muurhoogtes bepalen de helling al; laat hoogteverschil, helling en sparlengte leeg.');
+    diff = Math.abs(hR - hL);
   } else {
-    requirePositive(input.rafter!, 'De sparlengte');
-    if (input.rafter! <= leftRun) {
-      throw new GeometryError(`De sparlengte moet langer zijn dan de horizontale afstand (${fmt(leftRun)}).`);
+    if (values !== 1) throw new GeometryError('Vul één van deze in: hoogteverschil, dakhelling of sparlengte.');
+    if (has(input.rise)) {
+      requirePositive(input.rise, 'Het hoogteverschil');
+      diff = input.rise;
+    } else if (has(input.pitch)) {
+      requirePitch(input.pitch, 'De dakhelling');
+      diff = span * Math.tan(toRad(input.pitch));
+    } else {
+      requirePositive(input.rafter!, 'De sparlengte');
+      if (input.rafter! <= span) throw new GeometryError(`De sparlengte moet langer zijn dan de overspanning (${fmt(span)}).`);
+      diff = Math.sqrt(input.rafter! ** 2 - span ** 2);
     }
-    rise = Math.sqrt(input.rafter! ** 2 - leftRun ** 2);
+  }
+  // Without wall heights the slope rises to the right; with them it follows the walls.
+  const rightHigh = !fromFloor || hR >= hL;
+  const low = rightHigh ? hL : hR;
+  const leftPt = { x: 0, y: rightHigh ? low : low + diff };
+  const rightPt = { x: span, y: rightHigh ? low + diff : low };
+  const top = fromFloor ? [leftPt, rightPt] : [leftPt, rightPt, { x: span, y: 0 }];
+  const ridge = rightHigh ? rightPt : leftPt;
+  return finish('lessenaarsdak', span, ridge, side(span, diff, overhang), null, leftPt.y, rightPt.y, fromFloor, false, top);
+}
+
+/**
+ * Gable roof with the ridge anywhere between the walls and walls of different height.
+ * Two values fix it: any two of left/right pitch, left/right rafter, ridge height, ridge offset.
+ */
+function gable(input: RoofInput, span: number, hL: number, hR: number, overhang: number, fromFloor: boolean): RoofResult {
+  const { pitch: pL, pitchRight: pR, rafter: rL, rafterRight: rR, rise: H } = input;
+  let xr = has(input.ridgeOffset) ? input.ridgeOffset : null;
+  if (has(pL)) requirePitch(pL, 'De dakhelling links');
+  if (has(pR)) requirePitch(pR, 'De dakhelling rechts');
+  if (has(rL)) requirePositive(rL, 'De spar links');
+  if (has(rR)) requirePositive(rR, 'De spar rechts');
+  if (has(H)) requirePositive(H, 'De nokhoogte');
+
+  // Each value gives the ridge height as a function of the ridge position x.
+  const heightOf: ((x: number) => number)[] = [];
+  if (has(pL)) heightOf.push((x) => hL + x * Math.tan(toRad(pL)));
+  if (has(pR)) heightOf.push((x) => hR + (span - x) * Math.tan(toRad(pR)));
+  if (has(rL)) heightOf.push((x) => (x < rL ? hL + Math.sqrt(rL ** 2 - x ** 2) : NaN));
+  if (has(rR)) heightOf.push((x) => (span - x < rR ? hR + Math.sqrt(rR ** 2 - (span - x) ** 2) : NaN));
+  if (has(H)) heightOf.push(() => H);
+
+  const count = heightOf.length + (xr !== null ? 1 : 0);
+  let assumedCentre = false;
+  if (count === 1 && xr === null && Math.abs(hL - hR) < 1e-9) {
+    xr = span / 2;
+    assumedCentre = true;
+  } else if (count !== 2) {
+    throw new GeometryError(
+      count < 2
+        ? 'Vul twee waarden in: dakhelling links of rechts, spar links of rechts, nokhoogte of afstand tot de nok.'
+        : 'Vul precies twee waarden in; laat de andere leeg.',
+    );
   }
 
-  const left = side(leftRun, rise, overhang);
-  const right = isMono ? null : side(input.span - leftRun, rise, overhang);
-  const outline: Point[] = isMono
-    ? [
-        { x: 0, y: 0 },
-        { x: input.span, y: rise },
-        { x: input.span, y: 0 },
-      ]
-    : [
-        { x: 0, y: 0 },
-        { x: leftRun, y: rise },
-        { x: input.span, y: 0 },
-      ];
-  return { type: input.type, span: input.span, rise, left, right, upper: null, knee: null, gableArea: (input.span * rise) / 2, outline };
+  let ridgeHeight: number;
+  if (xr !== null) {
+    if (xr <= 0 || xr >= span) throw new GeometryError('De nok moet tussen de twee muren liggen.');
+    ridgeHeight = heightOf[0](xr);
+    if (!Number.isFinite(ridgeHeight)) throw new GeometryError('De spar is te kort om de nok op die plek te halen.');
+  } else {
+    // Two height functions: find the x where they meet.
+    const [f, g] = heightOf;
+    const diff = (x: number) => f(x) - g(x);
+    const steps = 4000;
+    const roots: number[] = [];
+    let prevX = (span * 0.5) / steps;
+    let prev = diff(prevX);
+    for (let i = 1; i < steps; i++) {
+      const x = (span * (i + 0.5)) / steps;
+      const d = diff(x);
+      if (Number.isFinite(prev) && Number.isFinite(d) && Math.sign(prev) !== Math.sign(d)) {
+        let lo = prevX;
+        let hi = x;
+        for (let k = 0; k < 80; k++) {
+          const mid = (lo + hi) / 2;
+          if (Math.sign(diff(mid)) === Math.sign(diff(lo))) lo = mid;
+          else hi = mid;
+        }
+        roots.push((lo + hi) / 2);
+      } else if (d === 0) roots.push(x);
+      prevX = x;
+      prev = d;
+    }
+    const distinct = roots.filter((r, i) => i === 0 || r - roots[i - 1] > span * 1e-6);
+    roots.length = 0;
+    roots.push(...distinct);
+    if (roots.length === 0) throw new GeometryError('Met deze twee waarden komen de dakvlakken niet bij elkaar. Controleer de maten.');
+    if (roots.length > 1) throw new GeometryError('Met deze twee waarden passen meerdere nokposities. Vul liever een helling of de nokhoogte in.');
+    xr = roots[0];
+    ridgeHeight = f(xr);
+  }
+
+  if (ridgeHeight <= hL + 1e-9 || ridgeHeight <= hR + 1e-9) throw new GeometryError('De nok moet hoger liggen dan beide muurplaten.');
+  const left = side(xr, ridgeHeight - hL, overhang);
+  const right = side(span - xr, ridgeHeight - hR, overhang);
+  const ridge = { x: xr, y: ridgeHeight };
+  return finish('zadeldak', span, ridge, left, right, hL, hR, fromFloor, assumedCentre, [{ x: 0, y: hL }, ridge, { x: span, y: hR }]);
 }
 
 /** A straight slope: horizontal run, vertical rise, pitch (degrees) and length along the slope. */
@@ -546,6 +686,11 @@ export function mansardSection(input: MansardInput): RoofResult {
     right: lowerSide,
     upper: side(upper.run, upper.rise, 0),
     knee,
+    ridge: outline[2],
+    plateLeft: 0,
+    plateRight: 0,
+    fromFloor: false,
+    ridgeAssumedCentre: false,
     gableArea: Math.abs(signedArea(outline)),
     outline,
   };

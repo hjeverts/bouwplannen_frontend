@@ -37,6 +37,12 @@ export interface OpeningEntry {
   name: string;
   width: string;
   height: string;
+  /** Wall index as text ('0' = wall 1–2); empty = not placed. Optional: older items lack it. */
+  wall?: string;
+  /** Distance from the wall's first corner to the near edge of the opening. */
+  offset?: string;
+  /** Height of the bottom edge above the floor ('0' for a door). */
+  sill?: string;
 }
 
 /** Any flat shape: floor plan, gable wall, plate. */
@@ -52,6 +58,9 @@ export interface VormItem extends BaseItem {
   angles: string[];
   /** Wall height, for rooms. */
   height: string;
+  /** 'gelijk': one height for the room; 'per-hoek': a height at every corner (sloped ceiling, ridge). */
+  heightMode?: 'gelijk' | 'per-hoek';
+  heights?: string[];
   openings: OpeningEntry[];
 }
 
@@ -69,7 +78,16 @@ export interface DakItem extends BaseItem {
   lowerPitch?: string;
   lowerRafter?: string;
   ridgeOffset: string;
+  /** Zadeldak: right-hand slope (rise/pitch/rafter above describe the left one). Optional for older items. */
+  pitchRight?: string;
+  rafterRight?: string;
+  /** Wall-plate heights from the floor, when the walls differ. */
+  wallLeft?: string;
+  wallRight?: string;
+  /** Horizontal overhang at the eaves (lengthens the rafters). */
   overhang: string;
+  /** Overhang past each gable end (lengthens purlins, ridge and the roof surface). */
+  gableOverhang?: string;
   /** Length of the roof along the ridge, for roof surface. */
   length: string;
 }
@@ -136,6 +154,8 @@ export function createItem(kind: ItemKind, name?: string): Item {
         flips: [false, false, false, false],
         angles: ['', ''],
         height: '',
+        heightMode: 'gelijk',
+        heights: ['', '', '', ''],
         openings: [],
       };
     case 'dak':
@@ -152,7 +172,12 @@ export function createItem(kind: ItemKind, name?: string): Item {
         lowerPitch: '',
         lowerRafter: '',
         ridgeOffset: '',
+        pitchRight: '',
+        rafterRight: '',
+        wallLeft: '',
+        wallRight: '',
         overhang: '',
+        gableOverhang: '',
         length: '',
       };
     case 'maten':
@@ -171,5 +196,6 @@ export function resizeVorm(item: VormItem, corners: number): VormItem {
     diagonals: fit(item.diagonals, n - 3, ''),
     flips: fit(item.flips, n, false),
     angles: fit(item.angles, n - 2, ''),
+    heights: fit(item.heights ?? [], n, ''),
   };
 }

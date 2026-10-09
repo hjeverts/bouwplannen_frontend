@@ -22,6 +22,7 @@ interface RoomChoice {
     <p class="lead">
       Meet eerst elke ruimte als <strong>Vorm</strong>, met hoogte en deuren en ramen. Hier leg je ze tegen elkaar: kies per ruimte tegen welke
       wand van een andere ruimte hij ligt en hoe dik de muur ertussen is. Een deur in die muur zet je maar in één van de twee ruimtes.
+      Een toilet in de garage of een meterkast in de hal? Kies dan <strong>Ligt in</strong>.
     </p>
 
     <h3 class="group-title">Ruimtes</h3>
@@ -45,9 +46,15 @@ interface RoomChoice {
         @if (i === 0) {
           <p class="hint">Uitgangspunt: de andere ruimtes worden hiertegen gelegd.</p>
         } @else {
+          <div class="segmented segmented--small plan-mode" role="radiogroup" aria-label="Ligging">
+            <button type="button" role="radio" [attr.aria-checked]="!r.inside" (click)="setRoom(i, { inside: false })">Ligt tegen</button>
+            <button type="button" role="radio" [attr.aria-checked]="!!r.inside" (click)="setRoom(i, { inside: true, thickness: r.thickness || '0,100', distance: r.distance || '0' })">
+              Ligt in
+            </button>
+          </div>
           <div class="fields fields--3 plan-link">
             <label class="field field--text">
-              <span class="field-label">Ligt tegen</span>
+              <span class="field-label">{{ r.inside ? 'Ligt in' : 'Ligt tegen' }}</span>
               <select [value]="r.to ?? ''" (change)="setRoom(i, { to: $any($event.target).value, toWall: '' })">
                 <option value="">Kies een ruimte</option>
                 @for (o of others(i); track o.id) {
@@ -65,7 +72,7 @@ interface RoomChoice {
               </select>
             </label>
             <label class="field field--text">
-              <span class="field-label">Tegen wand van {{ nameOf(r.to) }}</span>
+              <span class="field-label">{{ r.inside ? 'Langs wand van' : 'Tegen wand van' }} {{ nameOf(r.to) }}</span>
               <select [value]="r.toWall ?? ''" (change)="setRoom(i, { toWall: $any($event.target).value })">
                 <option value="">Kies</option>
                 @for (w of walls(r.to); track w.value) {
@@ -74,10 +81,18 @@ interface RoomChoice {
               </select>
             </label>
           </div>
-          <div class="fields fields--3">
-            <app-measure-field label="Muurdikte ertussen" [value]="r.thickness ?? ''" (valueChange)="setRoom(i, { thickness: $event })" placeholder="0,100" />
-            <app-measure-field label="Verschuiving" [value]="r.offset ?? ''" (valueChange)="setRoom(i, { offset: $event })" placeholder="0" [hint]="shiftHint(i)" />
-          </div>
+          @if (r.inside) {
+            <div class="fields fields--3">
+              <app-measure-field label="Eigen wanddikte" [value]="r.thickness ?? ''" (valueChange)="setRoom(i, { thickness: $event })" placeholder="0,100" hint="Wanden die vrij in de ruimte staan" />
+              <app-measure-field label="Langs de wand" [value]="r.offset ?? ''" (valueChange)="setRoom(i, { offset: $event })" placeholder="0" [hint]="shiftHint(i)" />
+              <app-measure-field label="Uit de wand" [value]="r.distance ?? ''" (valueChange)="setRoom(i, { distance: $event })" placeholder="0" hint="0 = gebruikt die wand als eigen wand" />
+            </div>
+          } @else {
+            <div class="fields fields--3">
+              <app-measure-field label="Muurdikte ertussen" [value]="r.thickness ?? ''" (valueChange)="setRoom(i, { thickness: $event })" placeholder="0,100" />
+              <app-measure-field label="Verschuiving" [value]="r.offset ?? ''" (valueChange)="setRoom(i, { offset: $event })" placeholder="0" [hint]="shiftHint(i)" />
+            </div>
+          }
         }
         <label class="check"><input type="checkbox" [checked]="!!r.mirror" (change)="setRoom(i, { mirror: !r.mirror })" /> Spiegelen (hoekpunten met de klok mee genummerd)</label>
         @if (roomStatus(r.roomId); as s) {

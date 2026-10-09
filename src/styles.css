@@ -1704,3 +1704,6 @@ app-house-viewer {
 .sub-card .fields {
   margin-block: 10px 6px;
 }
+.plan-mode {
+  margin-top: 10px;
+}

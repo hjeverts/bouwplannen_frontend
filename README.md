@@ -22,6 +22,7 @@ Invoer accepteert `3,456`, `3.456`, `345,6 cm` en `3456 mm`. Export naar JSON (b
 Met **Plattegrond** voeg je de gemeten ruimtes samen tot één verdieping:
 
 - De eerste ruimte is het uitgangspunt. Elke volgende ruimte leg je **tegen een wand van een andere ruimte**, met de **muurdikte** ertussen en een **verschuiving** langs die muur. Ruimtes die met de klok mee genummerd zijn, kun je spiegelen.
+- Een ruimte kan ook **in** een andere liggen (een toilet in de garage, een meterkast in de hal): kies "Ligt in", de wand waar je vanaf meet, hoe ver langs en uit die wand, en de dikte van de eigen wanden. De grote ruimte verliest dat stuk vloer (met de wanden), krijgt de buitenkant van die wanden als wandoppervlak, en het hok staat in de plattegrond en in 3D.
 - Een deur of raam in een muur tussen twee ruimtes zet je maar in één van de twee; hij komt vanzelf in beide (plattegrond, 3D, netto wandoppervlak).
 - **Buitenmaat-controle**: met de dikte van de buitenmuur rekent de app de buitenmaat uit en vergelijkt die met je gemeten breedte en diepte. Klopt het niet, dan zie je het verschil en hoe dik de buitenmuur dan zou zijn.
 - **Trapgat**: een gat in de vloer, gemeten in een ruimte vanaf een wand. Op die verdieping gekruist met maten, op de verdieping eronder gestippeld ("trap ↑"), in 3D als gat in de vloer.
@@ -70,7 +71,7 @@ src/app/
 ```bash
 npm install --legacy-peer-deps   # npm 10 struikelt anders over een peer-dependency
 npm start                        # http://localhost:4200, /api gaat naar de backend op :5094
-npm test -- --watch=false        # Vitest, 155 tests
+npm test -- --watch=false        # Vitest, 157 tests
 npm run build                    # dist/bouwplannen-frontend/browser, statisch te hosten
 ```
 

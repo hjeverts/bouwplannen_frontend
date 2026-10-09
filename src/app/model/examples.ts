@@ -71,6 +71,8 @@ export function exampleHouse(): Project {
   const bad = rectRoom('vw-bad', 'Badkamer', 3.5, 4.9, 2.5, [o('raam', 2, 1.3, 0.8, 0.8, 1.4)]);
   // Extension behind the living room, against the old back wall, with a lean-to roof.
   const uitbouw = rectRoom('vw-uitbouw', 'Uitbouw', 5, 3, 2.6, [o('schuifpui', 2, 1, 3, 2.2), o('raam', 3, 0.8, 1.2, 1.2, 0.9)]);
+  // A toilet built inside the extension, in the corner against the house.
+  const wc = rectRoom('vw-wc', 'Toilet', 1.4, 1, 2.6, [{ ...o('deur toilet', 2, 0.35, 0.73, 2.115), swing: 'buiten' }]);
 
   const roof: DakItem = {
     id: 'vw-kap',
@@ -119,6 +121,7 @@ export function exampleHouse(): Project {
       { roomId: hal.id, to: woon.id, wall: '3', toWall: '1', thickness: '0,100', offset: '0' },
       { roomId: keuken.id, to: hal.id, wall: '0', toWall: '2', thickness: '0,100', offset: '0' },
       { roomId: uitbouw.id, to: woon.id, wall: '0', toWall: '2', thickness: '0,300', offset: '0' },
+      { roomId: wc.id, to: uitbouw.id, wall: '0', toWall: '0', thickness: '0,070', offset: '3,600', inside: true, distance: '0' },
     ],
   });
   const first = floor('vw-1', 'Verdieping', {
@@ -152,6 +155,6 @@ export function exampleHouse(): Project {
     name: 'Voorbeeld: woning',
     created: now,
     updated: now,
-    items: [ground, first, woon, hal, keuken, uitbouw, slk1, slk2, overloop, bad, roof, leanTo],
+    items: [ground, first, woon, hal, keuken, uitbouw, wc, slk1, slk2, overloop, bad, roof, leanTo],
   };
 }

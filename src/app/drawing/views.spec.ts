@@ -30,7 +30,8 @@ describe('example house', () => {
     expect(g.plan.width.diff).toBeCloseTo(0.01, 6); // measured 8,810: 10 mm more
     expect(g.plan.depth.diff).toBeCloseTo(0, 6);
     expect(g.plan.depth.computed).toBeCloseTo(0.3 + 7.4 + 0.3 + 3 + 0.3, 6); // house, old back wall, extension
-    expect(g.plan.netArea).toBeCloseTo(37 + 3.1 * 3.7 + 3.1 * 3.6 + 15, 6);
+    // The toilet inside the extension takes its floor plus its two free walls (70 mm) from the extension.
+    expect(g.plan.netArea).toBeCloseTo(37 + 3.1 * 3.7 + 3.1 * 3.6 + 15 - 1.47 * 1.07 + 1.4, 6);
     // The extension has its own lean-to, the rest of the ground floor carries the upper floor.
     expect(g.plan.roofs).toHaveLength(1);
     const ext = g.plan.rooms.find((r) => r.name === 'Uitbouw')!;
@@ -38,7 +39,7 @@ describe('example house', () => {
     expect(g.plan.roomRoof.filter((x) => x === null)).toHaveLength(3);
     // Doors between the hall and the other rooms show up on both sides.
     const doors = g.plan.openings.filter((o) => o.door && !o.exterior);
-    expect(doors.map((d) => d.name).sort()).toEqual(['deur keuken', 'deur woonkamer']);
+    expect(doors.map((d) => d.name).sort()).toEqual(['deur keuken', 'deur toilet', 'deur woonkamer']);
     const living = g.plan.rooms.find((r) => r.name === 'Woonkamer')!;
     expect(living.walls.flatMap((w) => w.openings).some((o) => !o.own && o.name === 'deur woonkamer')).toBe(true);
     // The sliding door is glass, not a swinging door.
@@ -127,9 +128,9 @@ describe('3D model', () => {
   it('builds a cut-away of one floor with holes for the doors', () => {
     const faces = cutawayFaces(levels[0], 2.4);
     const inner = faces.filter((f) => f.kind === 'inner');
-    expect(inner).toHaveLength(16); // four rooms
+    expect(inner).toHaveLength(22); // five rooms, plus the outside of the toilet's two free walls
     expect(inner.reduce((s, f) => s + f.holes.length, 0)).toBeGreaterThanOrEqual(7);
-    expect(faces.find((f) => f.kind === 'cap')!.holes).toHaveLength(4);
+    expect(faces.find((f) => f.kind === 'cap')!.holes).toHaveLength(5);
   });
 
   it('computes normals with Newell', () => {
@@ -426,6 +427,85 @@ describe('door symbols', () => {
     const front = elevationView(levels, 'voor');
     expect(front.prims.some((p) => p.t === 'poly' && p.cls === 'f-roll')).toBe(true);
     expect(front.prims.filter((p) => p.t === 'line' && p.cls === 'slat').length).toBeGreaterThan(5);
+  });
+});
+
+describe('room inside another room', () => {
+  it('places the toilet in the corner of the extension and carves it out', () => {
+    const g = planOf(ground).plan;
+    const ext = g.rooms.find((r) => r.name === 'Uitbouw')!;
+    const wc = g.rooms.find((r) => r.name === 'Toilet')!;
+    expect(wc.host).toBe(ext.index);
+    expect(g.warnings).toEqual([]);
+    // Every corner of the toilet lies in the extension.
+    const xs = ext.points.map((p) => p.x);
+    const ys = ext.points.map((p) => p.y);
+    for (const p of wc.points) {
+      expect(p.x).toBeGreaterThanOrEqual(Math.min(...xs) - 1e-6);
+      expect(p.x).toBeLessThanOrEqual(Math.max(...xs) + 1e-6);
+      expect(p.y).toBeGreaterThanOrEqual(Math.min(...ys) - 1e-6);
+      expect(p.y).toBeLessThanOrEqual(Math.max(...ys) + 1e-6);
+    }
+    expect(wc.area).toBeCloseTo(1.4, 9);
+    expect(ext.area).toBeCloseTo(15 - 1.47 * 1.07, 6);
+    // The free walls face the extension through a 70 mm wall; the wall against the house is shared.
+    const free = wc.walls.filter((w) => w.neighbours.some((n) => n.wall === -1));
+    expect(free).toHaveLength(2);
+    expect(free[0].neighbours[0].thickness).toBeCloseTo(0.07, 9);
+    const shared = wc.walls[0];
+    expect(shared.neighbours.some((n) => g.rooms[n.room].name === 'Woonkamer')).toBe(true);
+    // Its door is an inside door in a 70 mm wall, not an outside door.
+    const door = g.openings.find((o) => o.name === 'deur toilet')!;
+    expect(door.exterior).toBe(false);
+    expect(door.thickness).toBeCloseTo(0.07, 9);
+    // Drawn as a box in the plan: the extension's floor has the toilet cut out.
+    expect(ext.floor.length).toBe(1);
+    expect(planView(g).prims.some((p) => p.t === 'text' && p.text === 'Toilet')).toBe(true);
+  });
+
+  it('warns when the inner room does not fit', () => {
+    const big: PlanRoomInput = {
+      id: 'b',
+      name: 'Berging',
+      points: [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 3, y: 3 },
+        { x: 0, y: 3 },
+      ],
+      heights: [2.6],
+      openings: [],
+      volume: null,
+      mirror: false,
+      link: null,
+    };
+    const wc: PlanRoomInput = {
+      ...big,
+      id: 'w',
+      name: 'Toilet',
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 1, y: 1.2 },
+        { x: 0, y: 1.2 },
+      ],
+      link: { to: 'b', wall: 0, toWall: 0, thickness: 0.07, offset: 2.5, inside: true, distance: 0 },
+    };
+    const fp = buildFloorPlan({ rooms: [big, wc], outerWall: 0.3, measuredWidth: null, measuredDepth: null, turn: 0, roofs: [] });
+    expect(fp.warnings.some((w) => /Toilet steekt buiten Berging uit/.test(w))).toBe(true);
+    // In the middle of the room: four free walls and a hole in the floor.
+    const mid = buildFloorPlan({
+      rooms: [big, { ...wc, link: { ...wc.link!, offset: 1, distance: 0.9 } }],
+      outerWall: 0.3,
+      measuredWidth: null,
+      measuredDepth: null,
+      turn: 0,
+      roofs: [],
+    });
+    expect(mid.warnings).toEqual([]);
+    expect(mid.rooms[1].walls.filter((w) => w.neighbours.some((n) => n.wall === -1))).toHaveLength(4);
+    expect(mid.rooms[0].floor.length).toBe(2);
+    expect(mid.rooms[0].area).toBeCloseTo(9 - 1.14 * 1.34, 6);
   });
 });
 

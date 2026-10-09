@@ -86,7 +86,7 @@ export interface PlanViewOptions {
 /** Floor plan of one level with wall thicknesses, doors, windows and dimensions. */
 export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
   const prims: Prim[] = [];
-  for (const r of plan.rooms) prims.push({ t: 'poly', rings: [r.points], cls: 'room' });
+  for (const r of plan.rooms) prims.push({ t: 'poly', rings: r.floor?.length ? r.floor : [r.points], cls: 'room' });
   if (plan.wallRings.length) prims.push({ t: 'poly', rings: plan.wallRings, cls: 'wall' });
 
   for (const o of plan.openings) {
@@ -160,6 +160,16 @@ export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
   }
 
   for (const r of plan.rooms) {
+    const xs = r.points.map((p) => p.x);
+    const ys = r.points.map((p) => p.y);
+    // Small rooms (toilet, meter cupboard): name and size as text instead of dimension lines.
+    const small = Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) < 1.8;
+    if (small) {
+      const size = r.walls.length === 4 ? `${mm(r.walls[0].length)}×${mm(r.walls[1].length)}` : formatArea(r.area);
+      prims.push({ t: 'text', at: r.centroid, text: r.name, cls: 'label', size: 2.2, dy: 1.3 });
+      prims.push({ t: 'text', at: r.centroid, text: size, cls: 'label-sub', size: 1.9, dy: -1.3 });
+      continue;
+    }
     prims.push({ t: 'text', at: r.centroid, text: r.name, cls: 'label', size: 2.8, dy: 1.8 });
     prims.push({ t: 'text', at: r.centroid, text: formatArea(r.area), cls: 'label-sub', size: 2.3, dy: -1.8 });
     if (opts.roomDims !== false) {

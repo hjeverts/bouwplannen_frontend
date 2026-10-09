@@ -353,6 +353,7 @@ export function exteriorFaces(levels: Level[]): Face[] {
     for (const r of plan.rooms) {
       for (const w of r.walls) {
         for (const nb of w.neighbours) {
+          if (nb.wall < 0) continue; // own wall of a room inside another: under the same roof
           const p = { x: w.from.x + w.dir.x * nb.from, y: w.from.y + w.dir.y * nb.from };
           const q = { x: w.from.x + w.dir.x * nb.to, y: w.from.y + w.dir.y * nb.to };
           const ts = tops.splits(p, q);
@@ -380,8 +381,9 @@ export function exteriorFaces(levels: Level[]): Face[] {
     const footprintGeom = plan.footprint.map((poly) => poly.map((ring) => toRing(ring)));
     plan.rooms.forEach((r, ri) => {
       if (plan.roomRoof[ri] !== null && plan.roomRoof[ri] !== undefined) return;
+      if (r.host !== null && r.host !== undefined) return; // covered by the roof of the room around it
       let area: MultiPolygon = intersection([toRing(tops.grown[ri])], footprintGeom as MultiPolygon);
-      const others = plan.rooms.filter((x) => x.index !== ri).map((x) => [toRing(x.points)] as ClipPolygon);
+      const others = plan.rooms.filter((x) => x.index !== ri && x.host !== ri).map((x) => [toRing(x.points)] as ClipPolygon);
       if (others.length) area = difference(area, ...others);
       for (const above of levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base)) {
         const shifted = above.plan.footprint.map((poly) => poly.map((ring) => toRing(ring.map((p) => ({ x: p.x + above.offset.x - lv.offset.x, y: p.y + above.offset.y - lv.offset.y })))));
@@ -453,7 +455,16 @@ export function cutawayFaces(level: Level, cut: number): Face[] {
   const faces: Face[] = [];
   for (const r of plan.rooms) {
     const holes = plan.voids.filter((v) => v.room === r.index).map((v) => v.points.map((p) => p3(p, 0, o)));
-    faces.push({ kind: 'floor', pts: r.points.map((p) => p3(p, 0, o)), holes, normal: { x: 0, y: 0, z: 1 }, decals: [], level: 0, layer: 0 });
+    const floor = r.floor && r.floor.length ? r.floor : [r.points];
+    faces.push({
+      kind: 'floor',
+      pts: floor[0].map((p) => p3(p, 0, o)),
+      holes: [...floor.slice(1).map((ring) => ring.map((p) => p3(p, 0, o))), ...holes],
+      normal: { x: 0, y: 0, z: 1 },
+      decals: [],
+      level: 0,
+      layer: 0,
+    });
     for (const w of r.walls) {
       const top = (t: number) => Math.min(cut, w.heightFrom + ((w.heightTo - w.heightFrom) * t) / (w.length || 1));
       const at = (t: number, z: number) => p3({ x: w.from.x + w.dir.x * t, y: w.from.y + w.dir.y * t }, z, o);
@@ -475,6 +486,20 @@ export function cutawayFaces(level: Level, cut: number): Face[] {
         level: 0,
         layer: 1,
       });
+      // A room inside another: the other side of its own wall, facing the room around it.
+      const free = w.neighbours.find((nb) => nb.wall < 0);
+      if (free) {
+        const sh = (q: P3): P3 => ({ x: q.x - w.inward.x * free.thickness, y: q.y - w.inward.y * free.thickness, z: q.z });
+        faces.push({
+          kind: 'inner',
+          pts: [at(w.length, 0), at(0, 0), at(0, top(0)), at(w.length, top(w.length))].map(sh),
+          holes: holes.map((h) => h.map(sh)),
+          normal: { x: -w.inward.x, y: -w.inward.y, z: 0 },
+          decals: [],
+          level: 0,
+          layer: 1,
+        });
+      }
     }
   }
   for (const poly of plan.footprint) {

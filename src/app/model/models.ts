@@ -123,6 +123,10 @@ export interface PlanRoomEntry {
   thickness?: string;
   /** Shift along the other room's wall, from its first corner. */
   offset?: string;
+  /** Lies inside the other room (a toilet in a garage); `thickness` is then its own wall. */
+  inside?: boolean;
+  /** Inside: from the other room's wall to this room's wall (0 = it uses that wall). */
+  distance?: string;
 }
 
 /** A stairwell or other hole in the floor, measured in a room from one of its walls. */

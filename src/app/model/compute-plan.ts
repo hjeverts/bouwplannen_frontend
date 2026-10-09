@@ -75,6 +75,8 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
                 toWall: Number.isInteger(toWall) ? toWall : -1,
                 thickness: lengthOr(entry.thickness, `${label}: muurdikte`, 0.1)!,
                 offset: lengthOr(entry.offset, `${label}: verschuiving`, 0)!,
+                inside: !!entry.inside,
+                distance: entry.inside ? lengthOr(entry.distance, `${label}: afstand uit de wand`, 0)! : 0,
               }
             : null;
       rooms.push({ id: vorm.id, name: vorm.name, points: shape.points, heights, openings, volume: room?.volume ?? null, mirror: !!entry.mirror, link });

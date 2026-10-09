@@ -57,6 +57,13 @@ export interface PlanLinkInput {
    * nearest end of this room's wall. Negative moves it back past that corner.
    */
   offset: number;
+  /**
+   * The room lies inside the other room (a toilet in a garage) instead of against it. `thickness`
+   * is then the room's own walls, and `distance` how far its wall is from the other room's wall
+   * (0 = it uses that wall).
+   */
+  inside?: boolean;
+  distance?: number;
 }
 
 export interface PlanRoomInput {
@@ -165,6 +172,10 @@ export interface PlacedRoom {
   shiftCorner: number | null;
   /** Wall area of the room minus all openings, including those from neighbours. */
   netWallArea: number;
+  /** Room this one lies inside (index), or null. */
+  host: number | null;
+  /** Floor of the room as drawn: its outline minus rooms inside it with their walls (even-odd rings). */
+  floor: Point[][];
 }
 
 /** A door or window in the plan, on the inside face of its own room's wall. */
@@ -410,8 +421,8 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
         problems.set(r.id, 'Kies de wanden waarmee de ruimtes tegen elkaar liggen.');
         continue;
       }
-      if (link.thickness < 0) {
-        problems.set(r.id, 'De muurdikte kan niet negatief zijn.');
+      if (link.thickness < 0 || (link.distance ?? 0) < 0) {
+        problems.set(r.id, link.thickness < 0 ? 'De muurdikte kan niet negatief zijn.' : 'De afstand uit de wand kan niet negatief zijn.');
         continue;
       }
       // Other room's wall in plan coordinates.
@@ -425,8 +436,8 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
       const a0 = local[link.wall];
       const a1 = local[(link.wall + 1) % n];
       const nA = inwardNormal(unit(sub(a1, a0)), signedArea(local) > 0);
-      // Rotate so this room's inside points away from the other room.
-      const target = mul(nB, -1);
+      // Rotate so this room's inside points away from the other room, or the same way when it lies inside it.
+      const target = link.inside ? nB : mul(nB, -1);
       const angle = Math.atan2(target.y, target.x) - Math.atan2(nA.y, nA.x);
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
@@ -435,7 +446,9 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
       const nearFirst = dot(ra0, dB) <= dot(ra1, dB);
       const e = nearFirst ? ra0 : ra1;
       shiftCorner.set(r.id, nearFirst ? link.wall : (link.wall + 1) % n);
-      const goal = add(add(b0, mul(dB, link.offset)), mul(nB, -link.thickness));
+      const goal = link.inside
+        ? add(add(b0, mul(dB, link.offset)), mul(nB, link.distance ?? 0))
+        : add(add(b0, mul(dB, link.offset)), mul(nB, -link.thickness));
       const t = sub(goal, e);
       // `apply` mirrors first, then rotates: matches how `local` was built.
       transforms.set(r.id, { cos, sin, tx: t.x, ty: t.y, mirror: r.mirror });
@@ -509,14 +522,29 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
       centroid: polygonCentroid(points) ?? mul(c, 1 / n),
       shiftCorner: shiftCorner.get(r.id) ?? null,
       netWallArea: 0,
+      host: null,
+      floor: [points],
     };
   });
+  // Rooms inside another room.
+  const innerWall = new Map<number, number>();
+  placedInputs.forEach((r, ri) => {
+    if (!r.link?.inside) return;
+    const host = placedInputs.findIndex((x) => x.id === r.link!.to);
+    if (host < 0) return;
+    rooms[ri].host = host;
+    innerWall.set(ri, r.link.thickness);
+    if (!rooms[ri].points.every((q) => pointInPolygon(q, rooms[host].points) || onEdge(q, rooms[host].points, 0.005))) {
+      warnings.push(`${rooms[ri].name} steekt buiten ${rooms[host].name} uit. Controleer de afstanden.`);
+    }
+  });
+  const related = (a: PlacedRoom, b: PlacedRoom) => a.host === b.index || b.host === a.index;
 
   // 4. Which walls face another room, and how thick the wall in between is.
   const maxPartition = Math.max(0.6, outerWall + 0.1, ...placedInputs.map((r) => (r.link ? r.link.thickness + 0.05 : 0)));
   for (const w of rooms.flatMap((r) => r.walls)) {
     for (const v of rooms.flatMap((r) => r.walls)) {
-      if (v.room === w.room) continue;
+      if (v.room === w.room || related(rooms[w.room], rooms[v.room])) continue;
       if (dot(w.dir, v.dir) > -0.9998) continue; // not anti-parallel (within ~1°)
       const d = dot(sub(v.from, w.from), mul(w.inward, -1));
       if (d < -MM || d > maxPartition) continue;
@@ -532,9 +560,20 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
     }
   }
   for (const r of rooms) {
+    if (r.host === null) continue;
+    const host = rooms[r.host];
+    const t = innerWall.get(r.index) ?? 0.1;
+    for (const w of r.walls) {
+      const mid = add(w.from, mul(w.dir, w.length / 2));
+      if (onEdge(mid, host.points, 0.01)) continue; // uses the host's wall
+      if (w.neighbours.length) continue;
+      w.neighbours.push({ room: host.index, wall: -1, thickness: t, from: 0, to: w.length });
+    }
+  }
+  for (const r of rooms) {
     // Overlapping rooms: a corner of one room inside another.
     for (const o of rooms) {
-      if (o.index <= r.index) continue;
+      if (o.index <= r.index || related(r, o)) continue;
       const inside = r.points.some((p) => pointInPolygon(p, o.points, -0.005)) || o.points.some((p) => pointInPolygon(p, r.points, -0.005));
       if (inside) warnings.push(`${r.name} en ${o.name} overlappen elkaar. Controleer de koppeling en de muurdikte.`);
     }
@@ -568,6 +607,7 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
       });
       if (!nb) continue;
       const v = rooms[nb.room].walls[nb.wall];
+      if (!v) continue; // a free-standing wall inside a room: the room's side is counted below
       const pa = add(a, mul(w.inward, -nb.thickness));
       const pb = add(b, mul(w.inward, -nb.thickness));
       const sa = dot(sub(pa, v.from), v.dir);
@@ -584,6 +624,35 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
     }
     r.netWallArea = Math.max(0, gross - holes);
   }
+  // A room inside another: its own walls add wall area on the other room's side, and take floor away.
+  const carved = new Map<number, ClipPolygon[]>();
+  for (const r of rooms) {
+    if (r.host === null) continue;
+    const host = rooms[r.host];
+    const t = innerWall.get(r.index) ?? 0.1;
+    const grown = grow(r.points, t);
+    const hostHeight = host.heights.reduce((a, b) => a + b, 0) / host.heights.length;
+    let extra = 0;
+    r.walls.forEach((w, i) => {
+      if (!w.neighbours.some((nb) => nb.wall === -1)) return;
+      const len = segmentInside(grown[i], grown[(i + 1) % grown.length], host.points);
+      extra += len * hostHeight - w.openings.reduce((a, o) => a + o.width * o.height, 0);
+    });
+    host.netWallArea += Math.max(0, extra);
+    carved.set(host.index, [...(carved.get(host.index) ?? []), [toRing(grown)]]);
+  }
+  for (const [hi, pieces] of carved) {
+    const host = rooms[hi];
+    const before = host.area;
+    const rest = difference([[toRing(host.points)]], ...pieces);
+    host.floor = rest.flatMap((poly) => poly.map(fromRing));
+    host.area = rest.reduce((a, poly) => a + Math.abs(signedArea(fromRing(poly[0]))) - poly.slice(1).reduce((h, ring) => h + Math.abs(signedArea(fromRing(ring))), 0), 0);
+    if (host.volume !== null) {
+      const avg = host.heights.reduce((a, b) => a + b, 0) / host.heights.length;
+      host.volume = Math.max(0, host.volume - (before - host.area) * avg);
+    }
+  }
+  for (const r of rooms) r.centroid = labelPoint(r.floor) ?? r.centroid;
 
   // 6. Outline of the building: every room grown by the outer wall, plus the walls in between.
   const pieces: ClipPolygon[] = rooms.map((r) => [toRing(grow(r.points, outerWall))]);
@@ -601,7 +670,7 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
   }
   const union: MultiPolygon = unionAll(...pieces);
   const footprint = union.map((poly) => poly.map(fromRing)).filter((poly) => poly[0] && poly[0].length >= 3);
-  const roomsUnion = unionAll(...rooms.map((r) => [toRing(r.points)] as ClipPolygon));
+  const roomsUnion = unionAll(...rooms.flatMap((r) => (r.host === null && !carved.has(r.index) ? [[toRing(r.points)] as ClipPolygon] : [])), ...rooms.filter((r) => r.host !== null || carved.has(r.index)).flatMap((r) => evenOddPolygons(r.floor)));
   const walled = roomsUnion.length ? difference(union, roomsUnion) : union;
   const wallRings = walled.flatMap((poly) => poly.map(fromRing));
 
@@ -612,7 +681,7 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
   const volume = rooms.every((r) => r.volume !== null) ? rooms.reduce((s, r) => s + (r.volume ?? 0), 0) : null;
   let partitionLength = 0;
   for (const w of rooms.flatMap((r) => r.walls)) {
-    for (const nb of w.neighbours) if (nb.room > w.room) partitionLength += nb.to - nb.from;
+    for (const nb of w.neighbours) if (nb.room > w.room || nb.wall === -1) partitionLength += nb.to - nb.from;
   }
 
   const width = check(input.measuredWidth, inner.maxX - inner.minX, outerWall);
@@ -671,6 +740,8 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
     }
     roofs.push(placed);
   }
+  // A room inside another is under the same roof.
+  for (const r of rooms) if (r.host !== null && roomRoof[r.index] === null) roomRoof[r.index] = roomRoof[r.host];
 
   return {
     rooms,
@@ -734,6 +805,75 @@ function polygonCentroid(points: Point[]): Point | null {
     cy += (p.y + q.y) * f;
   }
   return { x: cx / (6 * a), y: cy / (6 * a) };
+}
+
+/** Length of segment p–q that lies inside the polygon. */
+function segmentInside(p: Point, q: Point, poly: Point[]): number {
+  const ts = [0, 1];
+  const d = sub(q, p);
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const e = sub(poly[(i + 1) % poly.length], a);
+    const den = cross(d, e);
+    if (Math.abs(den) < 1e-12) continue;
+    const t = cross(sub(a, p), e) / den;
+    const u = cross(sub(a, p), d) / den;
+    if (t > 0 && t < 1 && u >= 0 && u <= 1) ts.push(t);
+  }
+  ts.sort((x, y) => x - y);
+  const len = Math.hypot(d.x, d.y);
+  let inside = 0;
+  for (let i = 0; i + 1 < ts.length; i++) {
+    const m = add(p, mul(d, (ts[i] + ts[i + 1]) / 2));
+    if (pointInPolygon(m, poly) || onEdge(m, poly, 0.002)) inside += (ts[i + 1] - ts[i]) * len;
+  }
+  return inside;
+}
+
+/** Even-odd rings (outer outlines and holes, any order) as polygons for the clipping library. */
+function evenOddPolygons(rings: Point[][]): ClipPolygon[] {
+  const outers = rings.filter((r, i) => !rings.some((o, j) => j !== i && Math.abs(signedArea(o)) > Math.abs(signedArea(r)) && pointInPolygon(r[0], o)));
+  return outers.map((o) => [toRing(o), ...rings.filter((h) => h !== o && pointInPolygon(h[0], o)).map(toRing)]);
+}
+
+/** A point well inside the floor for the room's name: farthest from the edges on a grid. */
+function labelPoint(rings: Point[][]): Point | null {
+  const pts = rings.flat();
+  if (pts.length < 3) return null;
+  const box = boxOf(pts);
+  const inside = (p: Point) => rings.reduce((n, r) => (pointInPolygon(p, r) ? n + 1 : n), 0) % 2 === 1;
+  const edgeDist = (p: Point) => {
+    let best = Infinity;
+    for (const r of rings) {
+      for (let i = 0; i < r.length; i++) {
+        const a = r[i];
+        const ab = sub(r[(i + 1) % r.length], a);
+        const t = Math.max(0, Math.min(1, dot(sub(p, a), ab) / (dot(ab, ab) || 1)));
+        best = Math.min(best, Math.hypot(p.x - a.x - ab.x * t, p.y - a.y - ab.y * t));
+      }
+    }
+    return best;
+  };
+  // Prefer the centroid of the outline when it is well inside (rectangles, most rooms).
+  const c = polygonCentroid(rings[0]);
+  const w = box.maxX - box.minX;
+  const h = box.maxY - box.minY;
+  if (c && inside(c) && edgeDist(c) > 0.25 * Math.min(w, h)) return c;
+  let best: Point | null = null;
+  let bestD = -1;
+  const n = 24;
+  for (let i = 0; i <= n; i++) {
+    for (let j = 0; j <= n; j++) {
+      const p = { x: box.minX + (w * i) / n, y: box.minY + (h * j) / n };
+      if (!inside(p)) continue;
+      const d = edgeDist(p);
+      if (d > bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+  }
+  return best;
 }
 
 function onEdge(p: Point, poly: Point[], tol = 0.002): boolean {

@@ -3,8 +3,10 @@ import { DakEditor } from '../editors/dak-editor';
 import { DriehoekEditor } from '../editors/driehoek-editor';
 import { HoekEditor } from '../editors/hoek-editor';
 import { MatenEditor } from '../editors/maten-editor';
+import { PlattegrondEditor } from '../editors/plattegrond-editor';
 import { VormEditor } from '../editors/vorm-editor';
-import { outlineOf, outlineToDxf, projectToCsv, summarize, toJson } from '../model/export';
+import { outlineOf, outlineToDxf, planToDxf, projectToCsv, summarize, toJson } from '../model/export';
+import { computePlattegrond } from '../model/compute-plan';
 import { Item, ItemKind, KIND_HINTS, KIND_LABELS } from '../model/models';
 import { ProjectStore } from '../model/project-store';
 import { GroupSelect } from '../account/group-select';
@@ -15,7 +17,7 @@ import { safeFilename } from '../ui/transfer';
 
 @Component({
   selector: 'app-project-view',
-  imports: [HoekEditor, DriehoekEditor, VormEditor, DakEditor, MatenEditor, ExportPanel, GroupSelect],
+  imports: [HoekEditor, DriehoekEditor, VormEditor, DakEditor, MatenEditor, PlattegrondEditor, ExportPanel, GroupSelect],
   template: `
     @if (project(); as p) {
       <div class="workspace" [class.workspace--item]="!!item()">
@@ -102,6 +104,9 @@ import { safeFilename } from '../ui/transfer';
               @case ('maten') {
                 <app-maten-editor [item]="it" (changed)="store.updateItem($event)" />
               }
+              @case ('plattegrond') {
+                <app-plattegrond-editor [item]="it" (changed)="store.updateItem($event)" />
+              }
             }
 
             <label class="field field--text notes" for="item-notes">
@@ -144,15 +149,16 @@ export class ProjectView {
   protected readonly item = this.store.currentItem;
   protected readonly labels = KIND_LABELS;
   protected readonly hints = KIND_HINTS;
-  protected readonly kinds: ItemKind[] = ['vorm', 'hoek', 'dak', 'driehoek', 'maten'];
+  protected readonly kinds: ItemKind[] = ['vorm', 'plattegrond', 'hoek', 'dak', 'driehoek', 'maten'];
   protected readonly confirmProject = signal(false);
   protected readonly confirmItem = signal<string | null>(null);
 
   protected keyResult(item: Item): string {
-    const rows = summarize(item);
+    const rows = summarize(item, this.project()?.items ?? []);
     if (rows.length === 0) return '';
     if (rows[0][0] === 'Status') return 'Nog niet compleet';
     if (item.kind === 'maten') return `${rows.length} maten`;
+    if (item.kind === 'plattegrond') return rows[0][1];
     if (item.kind === 'dak') {
       // Pitches of all slopes, e.g. "40,00° / 25,00°".
       return rows.filter((r) => r[0].startsWith('Helling')).map((r) => r[1].split(' (')[0]).join(' / ');
@@ -186,6 +192,28 @@ export class ProjectView {
 
   protected readonly itemExports = computed<ExportOption[]>(() => {
     const it = this.item();
+    if (it?.kind === 'plattegrond') {
+      const r = computePlattegrond(it, this.project()?.items ?? []);
+      if (r.status !== 'ok') return [];
+      const plan = r.value.plan;
+      return [
+        {
+          label: 'Plattegrond als DXF',
+          description: 'Ruimtes, buitenkant en openingen op eigen lagen, in millimeters',
+          filename: `${safeFilename(it.name)}.dxf`,
+          mime: 'application/dxf',
+          content: () =>
+            planToDxf([
+              ...plan.rooms.map((room) => ({ layer: 'RUIMTES', points: room.points })),
+              ...plan.footprint.flat().map((ring) => ({ layer: 'BUITENKANT', points: ring })),
+              ...plan.openings.map((o) => ({
+                layer: o.door ? 'DEUREN' : 'RAMEN',
+                points: [o.a, o.b, { x: o.b.x - o.inward.x * o.thickness, y: o.b.y - o.inward.y * o.thickness }, { x: o.a.x - o.inward.x * o.thickness, y: o.a.y - o.inward.y * o.thickness }],
+              })),
+            ]),
+        },
+      ];
+    }
     const pts = it ? outlineOf(it) : null;
     if (!it || !pts) return [];
     return [

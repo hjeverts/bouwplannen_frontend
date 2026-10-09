@@ -1,6 +1,7 @@
 import { Point, RoofSide } from '../geometry/geometry';
-import { formatAngle, formatArea, formatLength, formatPercent, formatVolume } from '../geometry/units';
+import { formatAngle, formatArea, formatLength, formatMm, formatPercent, formatVolume } from '../geometry/units';
 import { computeDak, computeDriehoek, computeHoek, computeMaten, computeVorm } from './compute';
+import { computePlattegrond } from './compute-plan';
 import { Item, KIND_LABELS, Project } from './models';
 
 export interface ExportFile {
@@ -41,7 +42,7 @@ export function parseImport(text: string): Project[] {
 export function projectToCsv(project: Project): string {
   const rows: string[][] = [['Onderdeel', 'Soort', 'Omschrijving', 'Waarde']];
   for (const item of project.items) {
-    for (const [label, value] of summarize(item)) rows.push([item.name, KIND_LABELS[item.kind], label, value]);
+    for (const [label, value] of summarize(item, project.items)) rows.push([item.name, KIND_LABELS[item.kind], label, value]);
   }
   return rows.map((r) => r.map(csvCell).join(';')).join('\r\n');
 }
@@ -51,7 +52,7 @@ function csvCell(v: string): string {
 }
 
 /** Human-readable key results of an item, as label/value pairs. */
-export function summarize(item: Item): [string, string][] {
+export function summarize(item: Item, items: Item[] = []): [string, string][] {
   switch (item.kind) {
     case 'hoek': {
       const r = computeHoek(item);
@@ -117,6 +118,24 @@ export function summarize(item: Item): [string, string][] {
       if (r.status !== 'ok') return [['Status', r.message]];
       return item.entries.map((e, i) => [e.label || `Maat ${i + 1}`, formatLength(r.value.values[i])]);
     }
+    case 'plattegrond': {
+      const r = computePlattegrond(item, items);
+      if (r.status !== 'ok') return [['Status', r.message]];
+      const { plan } = r.value;
+      const out: [string, string][] = [
+        ['Netto vloeroppervlak', formatArea(plan.netArea)],
+        ['Bruto vloeroppervlak', formatArea(plan.grossArea)],
+        ['Buitenmaat breedte', formatLength(plan.outer.maxX - plan.outer.minX)],
+        ['Buitenmaat diepte', formatLength(plan.outer.maxY - plan.outer.minY)],
+      ];
+      if (plan.width.diff !== null) out.push(['Verschil met gemeten breedte', formatMm(plan.width.diff)]);
+      if (plan.depth.diff !== null) out.push(['Verschil met gemeten diepte', formatMm(plan.depth.diff)]);
+      if (plan.volume !== null) out.push(['Inhoud ruimtes', formatVolume(plan.volume)]);
+      out.push(['Lengte binnenmuren', formatLength(plan.partitionLength)]);
+      for (const room of plan.rooms) out.push([`${room.name} vloer`, formatArea(room.area)], [`${room.name} wand netto`, formatArea(room.netWallArea)]);
+      if (plan.roof) out.push(['Nokhoogte boven vloer', formatLength(plan.roof.ridgeHeight)]);
+      return out;
+    }
   }
 }
 
@@ -131,6 +150,21 @@ export function outlineOf(item: Item): Point[] | null {
     return r.status === 'ok' ? r.value.roof.outline : null;
   }
   return null;
+}
+
+/** DXF of a floor plan: every room outline, the outside of the building and the openings, on separate layers. */
+export function planToDxf(rings: { layer: string; points: Point[] }[]): string {
+  const mm = (v: number) => (Math.round(v * 1e6) / 1e3).toString();
+  const out: string[] = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES'];
+  for (const { layer, points } of rings) {
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      const q = points[(i + 1) % points.length];
+      out.push('0', 'LINE', '8', layer, '10', mm(p.x), '20', mm(p.y), '30', '0', '11', mm(q.x), '21', mm(q.y), '31', '0');
+    }
+  }
+  out.push('0', 'ENDSEC', '0', 'EOF');
+  return out.join('\r\n') + '\r\n';
 }
 
 /** Minimal DXF (R12, ASCII) with the outline as LINE entities, in millimetres. Opens in AutoCAD, LibreCAD, FreeCAD. */

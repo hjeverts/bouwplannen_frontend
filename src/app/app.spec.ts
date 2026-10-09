@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { App } from './app';
 import { API_FETCH } from './api/api-client';
@@ -37,11 +38,53 @@ describe('App', () => {
   it('shows the empty state and can open the example project', async () => {
     const { fixture, el, store } = render();
     expect(el.textContent).toContain('Nog geen projecten');
-    (Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Voorbeeldproject')) as HTMLButtonElement).click();
+    (Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Voorbeeld: schuur')) as HTMLButtonElement).click();
     fixture.detectChanges();
     await fixture.whenStable();
     expect(store.currentProject()?.name).toBe('Voorbeeld: schuur');
     expect(el.querySelectorAll('.item').length).toBe(6);
+  });
+
+  it('opens the example house: floor plan, 3D and elevations of both floors', async () => {
+    const { fixture, el, store } = render();
+    (Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Voorbeeld: woning')) as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(store.currentItem()?.kind).toBe('plattegrond');
+    expect(el.querySelector('app-plattegrond-editor .results')?.textContent).toContain('Netto vloeroppervlak');
+    expect(el.querySelector('app-plattegrond-editor .status--error')).toBeNull();
+    // Plan drawing with the rooms and the outside dimensions.
+    const plan = el.querySelector('app-house-viewer svg')!;
+    expect(plan.textContent).toContain('Woonkamer');
+    expect(plan.textContent).toContain('8800');
+    const tab = (name: string) => (Array.from(el.querySelectorAll('app-house-viewer [role=radio]')).find((b) => b.textContent?.trim() === name) as HTMLButtonElement).click();
+    tab('3D');
+    await settle(fixture);
+    expect(el.querySelectorAll('app-house-viewer svg path').length).toBeGreaterThanOrEqual(8);
+    tab('Gevels');
+    await settle(fixture);
+    expect(el.querySelectorAll('app-house-viewer figure svg').length).toBe(4);
+    expect(el.querySelector('app-house-viewer figure')?.textContent).toContain('Voorgevel');
+    // Upper floor: stands on the ground floor and carries the roof.
+    store.openItem('vw-1');
+    await settle(fixture);
+    expect(el.querySelector('app-plattegrond-editor .results')?.textContent).toContain('Vloer boven begane grond');
+  });
+
+  it('prints the A4 overview as a sheet at scale', async () => {
+    const { fixture, el } = render();
+    (Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Voorbeeld: woning')) as HTMLButtonElement).click();
+    await settle(fixture);
+    const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
+    (Array.from(el.querySelectorAll('app-house-viewer button')).find((b) => b.textContent?.includes('A4-overzicht')) as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(print).toHaveBeenCalledTimes(1);
+    const sheet = document.querySelector('.print-root svg')!;
+    expect(sheet.getAttribute('width')).toBe('297mm');
+    expect(sheet.textContent).toContain('Achtergevel');
+    expect(document.body.classList.contains('printing')).toBe(true);
+    window.dispatchEvent(new Event('afterprint'));
+    expect(document.querySelector('.print-root')).toBeNull();
+    print.mockRestore();
   });
 
   it('renders every editor for the example project with a result and a drawing', async () => {

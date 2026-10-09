@@ -37,7 +37,10 @@ export function formatLength(m: number | null | undefined, digits = 3): string {
 }
 
 export function formatMm(m: number | null | undefined): string {
-  return m === null || m === undefined || !Number.isFinite(m) ? '–' : `${nl(0).format(m * 1000)} mm`;
+  if (m === null || m === undefined || !Number.isFinite(m)) return '–';
+  // No "-0 mm" for a difference under half a millimetre.
+  const v = Math.round(m * 1000);
+  return `${nl(0).format(v === 0 ? 0 : v)} mm`;
 }
 
 export function formatAngle(deg: number | null | undefined, digits = 1): string {

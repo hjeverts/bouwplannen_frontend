@@ -109,7 +109,7 @@ export class Room3d {
       return { sx: x1, sy: p.z * Math.cos(el) + y1 * Math.sin(el), depth: y1 * Math.cos(el) - p.z * Math.sin(el) };
     };
     // Direction from the room towards the camera, in floor coordinates (for front/back walls).
-    const toCamera = { x: Math.sin(az), y: -Math.cos(az) };
+    const toCamera = { x: -Math.sin(az), y: -Math.cos(az) };
 
     // Fit to the drawing area using every corner at floor and ceiling height.
     const heightAt = (i: number) => room.walls[i].heightFrom;

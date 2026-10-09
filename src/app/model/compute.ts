@@ -14,7 +14,7 @@ import {
 } from '../geometry/geometry';
 import { analyzeRoom, OpeningInput, RoomResult } from '../geometry/room';
 import { parseAngle, parseLength } from '../geometry/units';
-import { DakItem, DriehoekItem, HoekItem, Item, MatenItem, VormItem } from './models';
+import { DakItem, DriehoekItem, HoekItem, MatenItem, VormItem } from './models';
 
 /**
  * Outcome of computing an item:
@@ -224,19 +224,4 @@ export function computeMaten(item: MatenItem): Outcome<MatenResult> {
     const values = item.entries.map((e, i) => len(e.value, e.label || `Maat ${i + 1}`));
     return { status: 'ok', value: { values, total: values.reduce<number>((s, v) => s + (v ?? 0), 0) } };
   });
-}
-
-export function computeItem(item: Item): Outcome<unknown> {
-  switch (item.kind) {
-    case 'hoek':
-      return computeHoek(item);
-    case 'driehoek':
-      return computeDriehoek(item);
-    case 'vorm':
-      return computeVorm(item);
-    case 'dak':
-      return computeDak(item);
-    case 'maten':
-      return computeMaten(item);
-  }
 }

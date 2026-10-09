@@ -3,7 +3,7 @@
  * and nothing is lost to rounding. Results are always recomputed from these values.
  */
 
-export type ItemKind = 'hoek' | 'driehoek' | 'vorm' | 'dak' | 'maten';
+export type ItemKind = 'hoek' | 'driehoek' | 'vorm' | 'dak' | 'maten' | 'plattegrond';
 
 interface BaseItem {
   id: string;
@@ -103,7 +103,64 @@ export interface MatenItem extends BaseItem {
   entries: MaatEntry[];
 }
 
-export type Item = HoekItem | DriehoekItem | VormItem | DakItem | MatenItem;
+/** A room (a Vorm item) placed in a floor plan. */
+export interface PlanRoomEntry {
+  roomId: string;
+  /** The corners were numbered clockwise: mirror the shape so it lies the right way round. */
+  mirror?: boolean;
+  /** Placed against this room (another Vorm item in the plan); absent for the first room. */
+  to?: string;
+  /** Own wall and the other room's wall, as index text ('0' = wall 1–2). */
+  wall?: string;
+  toWall?: string;
+  /** Thickness of the wall in between. */
+  thickness?: string;
+  /** Shift along the other room's wall, from its first corner. */
+  offset?: string;
+}
+
+/** A stairwell or other hole in the floor, measured in a room from one of its walls. */
+export interface VoidEntry {
+  name: string;
+  roomId: string;
+  /** Wall index as text ('0' = wall 1–2). */
+  wall: string;
+  /** Along the wall from its first corner, and from the wall into the room. */
+  offset: string;
+  distance: string;
+  /** Along the wall and into the room. */
+  width: string;
+  length: string;
+}
+
+/** One floor of a building: rooms placed against each other, outer walls, roof and the floor below. */
+export interface PlattegrondItem extends BaseItem {
+  kind: 'plattegrond';
+  rooms: PlanRoomEntry[];
+  outerWall: string;
+  /** Measured outside: width of the front and depth, to check against the rooms. */
+  measuredWidth: string;
+  measuredDepth: string;
+  /** Quarter turns of the plan: which side is the front. */
+  turn: number;
+  /** Roof (Dak item) on this floor; '' = none. */
+  roofId: string;
+  /** Ridge parallel to the front ('x') or front to back ('y'). */
+  ridge: 'x' | 'y';
+  roofFlip: boolean;
+  /** Wall-plate height above this floor, for roofs entered without wall heights. Empty: highest room. */
+  plateHeight: string;
+  /** Floor this one stands on ('' = ground floor). */
+  below: string;
+  floorThickness: string;
+  /** Shift of the outside walls relative to the floor below (right and back). */
+  shiftX: string;
+  shiftY: string;
+  /** Stairwells in this floor (optional: older items lack it). */
+  voids?: VoidEntry[];
+}
+
+export type Item = HoekItem | DriehoekItem | VormItem | DakItem | MatenItem | PlattegrondItem;
 
 export interface Project {
   id: string;
@@ -121,14 +178,16 @@ export const KIND_LABELS: Record<ItemKind, string> = {
   vorm: 'Vorm',
   dak: 'Dak & spant',
   maten: 'Losse maten',
+  plattegrond: 'Plattegrond',
 };
 
 export const KIND_HINTS: Record<ItemKind, string> = {
   hoek: 'Hoek bepalen met drie maten vanaf de hoek',
   driehoek: 'Driehoek uit drie bekende waarden',
-  vorm: 'Plattegrond, gevel of plaat uit zijden en diagonalen of hoeken',
+  vorm: 'Ruimte, gevel of plaat uit zijden en diagonalen of hoeken',
   dak: 'Dakhelling, sparlengte en gevelvlak',
   maten: 'Lijst met gemeten maten en labels',
+  plattegrond: 'Ruimtes samenvoegen tot een verdieping, met muren, buitenmaat, kap en aanzichten',
 };
 
 export function newId(): string {
@@ -184,6 +243,24 @@ export function createItem(kind: ItemKind, name?: string): Item {
       };
     case 'maten':
       return { ...base, kind, entries: [{ label: '', value: '' }] };
+    case 'plattegrond':
+      return {
+        ...base,
+        kind,
+        rooms: [],
+        outerWall: '0,300',
+        measuredWidth: '',
+        measuredDepth: '',
+        turn: 0,
+        roofId: '',
+        ridge: 'x',
+        roofFlip: false,
+        plateHeight: '',
+        below: '',
+        floorThickness: '0,300',
+        shiftX: '',
+        shiftY: '',
+      };
   }
 }
 

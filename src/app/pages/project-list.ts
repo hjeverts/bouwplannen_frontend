@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { parseImport, toJson } from '../model/export';
+import { exampleHouse } from '../model/examples';
 import { KIND_LABELS, Project } from '../model/models';
 import { ProjectStore } from '../model/project-store';
 import { AccountPanel } from '../account/account-panel';
@@ -35,7 +36,10 @@ import { ExportOption, ExportPanel } from '../ui/export-panel';
         <div class="empty">
           <h2>Nog geen projecten</h2>
           <p>Maak een project per klus of gebouw. Daarin leg je hoeken, vormen, daken en losse maten vast.</p>
-          <button type="button" class="btn" (click)="example()">Voorbeeldproject openen</button>
+          <div class="empty-actions">
+            <button type="button" class="btn" (click)="example()">Voorbeeld: schuur</button>
+            <button type="button" class="btn" (click)="exampleHouse()">Voorbeeld: woning met verdieping</button>
+          </div>
         </div>
       } @else {
         <ul class="projects">
@@ -162,6 +166,13 @@ export class ProjectList {
     if (!file) return;
     file.text().then((t) => this.importText(t));
     input.value = '';
+  }
+
+  protected exampleHouse(): void {
+    const house = exampleHouse();
+    this.store.importProjects([house]);
+    this.store.openProject(house.id);
+    this.store.openItem(house.items[0].id);
   }
 
   protected example(): void {

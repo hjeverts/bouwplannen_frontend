@@ -1,4 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { canDownload } from '../ui/transfer';
 import { SyncService } from './sync.service';
 
 /** Settings for the server connection, with a connection test and the current state. */
@@ -47,7 +48,8 @@ import { SyncService } from './sync.service';
 })
 export class SyncPanel {
   protected readonly sync = inject(SyncService);
-  protected readonly url = signal(this.sync.settings().serverUrl);
+  // Served by the deploy setup, the API sits on the same address (/api): suggest that.
+  protected readonly url = signal(this.sync.settings().serverUrl || defaultServerUrl());
   protected readonly key = signal(this.sync.settings().apiKey);
   protected readonly testing = signal(false);
   protected readonly testResult = signal<{ ok: boolean; message: string } | null>(null);
@@ -83,5 +85,13 @@ export class SyncPanel {
   protected async turnOff(): Promise<void> {
     this.testResult.set(null);
     await this.sync.configure({ ...this.sync.settings(), enabled: false });
+  }
+}
+
+function defaultServerUrl(): string {
+  try {
+    return canDownload() && /^https?:$/.test(location.protocol) ? location.origin : '';
+  } catch {
+    return '';
   }
 }

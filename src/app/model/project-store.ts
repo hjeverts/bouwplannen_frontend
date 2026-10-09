@@ -2,9 +2,14 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { createItem, Item, ItemKind, newId, Project } from './models';
 import { PROJECT_STORAGE } from './storage';
 
+export type ProjectChange = { type: 'upsert'; id: string } | { type: 'delete'; id: string };
+
 /** All project state lives here, as signals. Every change is written to storage straight away. */
 @Injectable({ providedIn: 'root' })
 export class ProjectStore {
+  /** Called after every change made in this app (not for changes applied from the server). */
+  private readonly listeners: ((change: ProjectChange) => void)[] = [];
+
   private readonly storage = inject(PROJECT_STORAGE);
 
   readonly projects = signal<Project[]>(this.storage.load());
@@ -18,6 +23,26 @@ export class ProjectStore {
   private commit(projects: Project[]): void {
     this.projects.set(projects);
     this.storage.save(projects);
+  }
+
+  onChange(listener: (change: ProjectChange) => void): void {
+    this.listeners.push(listener);
+  }
+
+  private notify(change: ProjectChange): void {
+    for (const l of this.listeners) l(change);
+  }
+
+  /** Put a project from the server in place (or add it) without reporting it as a local change. */
+  applyRemote(project: Project): void {
+    const exists = this.projects().some((p) => p.id === project.id);
+    this.commit(exists ? this.projects().map((p) => (p.id === project.id ? project : p)) : [project, ...this.projects()]);
+  }
+
+  /** Remove a project that was deleted on another device, without reporting it as a local change. */
+  removeRemote(id: string): void {
+    this.commit(this.projects().filter((p) => p.id !== id));
+    if (this.currentProjectId() === id) this.openProject(null);
   }
 
   private touch<T extends { updated: string }>(obj: T): T {
@@ -37,16 +62,18 @@ export class ProjectStore {
     const now = new Date().toISOString();
     const project: Project = { id: newId(), name: name.trim() || 'Nieuw project', created: now, updated: now, items: [] };
     this.commit([project, ...this.projects()]);
+    this.notify({ type: 'upsert', id: project.id });
     this.openProject(project.id);
     return project;
   }
 
   renameProject(id: string, name: string): void {
-    this.commit(this.projects().map((p) => (p.id === id ? this.touch({ ...p, name }) : p)));
+    this.updateProject(id, (p) => ({ ...p, name }));
   }
 
   deleteProject(id: string): void {
     this.commit(this.projects().filter((p) => p.id !== id));
+    this.notify({ type: 'delete', id });
     if (this.currentProjectId() === id) this.openProject(null);
   }
 
@@ -55,6 +82,7 @@ export class ProjectStore {
     const byId = new Map(this.projects().map((p) => [p.id, p]));
     for (const p of incoming) byId.set(p.id, p);
     this.commit([...byId.values()].sort((a, b) => b.updated.localeCompare(a.updated)));
+    for (const p of incoming) this.notify({ type: 'upsert', id: p.id });
     return incoming.length;
   }
 
@@ -97,5 +125,6 @@ export class ProjectStore {
 
   private updateProject(id: string, change: (p: Project) => Project): void {
     this.commit(this.projects().map((p) => (p.id === id ? this.touch(change(p)) : p)));
+    this.notify({ type: 'upsert', id });
   }
 }

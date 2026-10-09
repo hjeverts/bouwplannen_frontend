@@ -2,11 +2,12 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { parseImport, toJson } from '../model/export';
 import { KIND_LABELS, Project } from '../model/models';
 import { ProjectStore } from '../model/project-store';
+import { SyncPanel } from '../sync/sync-panel';
 import { ExportOption, ExportPanel } from '../ui/export-panel';
 
 @Component({
   selector: 'app-project-list',
-  imports: [ExportPanel],
+  imports: [ExportPanel, SyncPanel],
   template: `
     <section class="page">
       <form class="create" (submit)="create($event)">
@@ -42,6 +43,8 @@ import { ExportOption, ExportPanel } from '../ui/export-panel';
           }
         </ul>
       }
+
+      <app-sync-panel />
 
       <details class="more">
         <summary>Back-up en importeren</summary>

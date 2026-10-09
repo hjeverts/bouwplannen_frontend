@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { ProjectStore } from './model/project-store';
+import { SyncService } from './sync/sync.service';
 import { ProjectList } from './pages/project-list';
 import { ProjectView } from './pages/project-view';
 
@@ -22,6 +23,12 @@ import { ProjectView } from './pages/project-view';
           <span class="crumb crumb--current">{{ p.name }}</span>
         </nav>
       }
+      @if (sync.settings().enabled) {
+        <span class="sync-chip" [title]="sync.message() ?? ''" role="status">
+          <span class="sync-dot sync-dot--{{ sync.status() }}" aria-hidden="true"></span>
+          {{ chip() }}
+        </span>
+      }
     </header>
     <main class="main">
       @if (store.currentProject()) {
@@ -34,4 +41,20 @@ import { ProjectView } from './pages/project-view';
 })
 export class App {
   protected readonly store = inject(ProjectStore);
+  /** Created here so syncing runs from the start, whichever page is open. */
+  protected readonly sync = inject(SyncService);
+
+  protected chip(): string {
+    const pending = this.sync.pending();
+    switch (this.sync.status()) {
+      case 'bezig':
+        return 'Synchroniseren…';
+      case 'offline':
+        return pending ? `Offline · ${pending} wacht` : 'Offline';
+      case 'fout':
+        return 'Sync-fout';
+      default:
+        return pending ? `${pending} te verzenden` : 'Gesynchroniseerd';
+    }
+  }
 }

@@ -294,12 +294,13 @@ function wallPolygon(p: Point, q: Point, ts: number[], bottomAt: (pt: Point, seg
     }
     if (ta <= ba + 1e-4 || tb <= bb + 1e-4) {
       // The wall dips under its bottom half way: cut at the crossing.
-      const da = ta - ba;
-      const db = tb - bb;
-      const t = da / (da - db);
+      // Rounding can leave a top a hair above its bottom: that end counts as touching (t = 0 or 1).
+      const da = Math.max(0, ta - ba - 1e-4);
+      const db = Math.max(0, tb - bb - 1e-4);
+      const t = da > 0 ? Math.min(1, (ta - ba) / (ta - ba - (tb - bb))) : 0;
       const m = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
       const zm = ba + (bb - ba) * t;
-      if (da > 0) {
+      if (db === 0) {
         if (!bottom.length) bottom.push(p3(a, ba, offset));
         bottom.push(p3(m, zm, offset));
         tops.push(p3(a, ta, offset), p3(m, zm, offset));

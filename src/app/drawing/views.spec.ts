@@ -848,3 +848,31 @@ describe('typing errors', () => {
     expect(r.value.plan.warnings.some((w) => /Vloerdikte is 49,000 m: dat lijkt een typfout\. Bedoel je 0,490 m\?/.test(w))).toBe(true);
   });
 });
+
+describe('gable of an attic under a roof without wall plate', () => {
+  // Hans's case: the roof sits on the attic floor, plate 0, so the gable starts exactly at the floor.
+  const now = '';
+  const vorm = (id: string, w: string, d: string, h: string, mode: string, openings: unknown[] = []) => ({ id, kind: 'vorm', name: id, notes: '', updated: now, method: 'hoeken', sides: [w, d, w, d], diagonals: [''], flips: [false, false, false, false], angles: ['90', '90'], height: h, heightMode: mode, heights: ['', '', '', ''], openings });
+  const floor = (id: string, room: string, extra: object) => ({ id, kind: 'plattegrond', name: id, notes: '', updated: now, rooms: [{ roomId: room }], outerWall: '0.3', measuredWidth: '', measuredDepth: '', turn: 0, roofId: '', ridge: 'x', roofFlip: false, plateHeight: '', below: '', floorThickness: '0.3', shiftX: '', shiftY: '', ...extra });
+  const items = [
+    vorm('w', '7.4', '5.9', '2.8', 'gelijk'),
+    vorm('z', '7.7', '6.2', '', 'kap', [{ name: 'raam', wall: '3', offset: '3', width: '0.5', height: '0.8', sill: '0.3' }]),
+    { id: 'kap', kind: 'dak', name: 'Kap', notes: '', updated: now, roofType: 'zadeldak', span: '6.5', rise: '2', pitch: '', rafter: '', ridgeOffset: '', overhang: '', length: '' },
+    floor('bg', 'w', {}),
+    floor('zo', 'z', { below: 'bg', outerWall: '0.15', roofs: [{ roofId: 'kap', rooms: [], ridge: 'x', flip: false, plateHeight: '', dormers: [], windows: [] }] }),
+  ] as never[];
+
+  it('builds both gables as whole triangles, with the window on the left one', () => {
+    const levels = computeBuilding(items[4], items);
+    const gables = exteriorFaces(levels).filter((f) => f.kind === 'facade' && f.level === 1 && Math.abs(f.normal.x) > 0.9);
+    expect(gables.length).toBe(2);
+    for (const g of gables) {
+      const ys = g.pts.map((p) => p.y);
+      expect(Math.min(...ys)).toBeCloseTo(0, 6);
+      expect(Math.max(...ys)).toBeCloseTo(6.5, 6);
+      expect(Math.max(...g.pts.map((p) => p.z))).toBeCloseTo(5.1, 6);
+    }
+    expect(gables.find((g) => g.normal.x < 0)!.decals.length).toBe(1);
+    expect(gables.find((g) => g.normal.x > 0)!.decals.length).toBe(0);
+  });
+});

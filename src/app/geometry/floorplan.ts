@@ -79,8 +79,11 @@ export interface PlanRoomInput {
   mirror: boolean;
   /** How the room is placed; null for the starting room. */
   link: PlanLinkInput | null;
-  /** The walls go up to the roof it lies under (attic): heights, volume and wall area follow from the roof. */
-  followRoof?: boolean;
+  /**
+   * The walls go up to the roof it lies under (attic): heights, volume and wall area follow from the
+   * roof. 'auto': no height was entered, so follow a roof if there is one (no warning when there is none).
+   */
+  followRoof?: boolean | 'auto';
 }
 
 
@@ -123,6 +126,12 @@ export interface PlanInput {
   roof?: PlanRoofInput | null;
   /** Thickness of a flat roof above rooms without a roof or a floor above (default 0,300). */
   flatThickness?: number;
+  /**
+   * Roofs of the floor below that this floor lies inside (an attic floor under the roof of the floor
+   * below), already in this floor's coordinates and heights. Rooms that follow the roof use them
+   * when no roof of this floor covers them.
+   */
+  roofsAround?: PlacedRoof[];
 }
 
 export interface WallOpening extends OpeningOptions {
@@ -233,6 +242,8 @@ export interface DimensionCheck {
 }
 
 export interface FloorPlan {
+  /** This floor lies inside the roof of the floor below (attic): it has no facades or roof of its own. */
+  insideRoof: boolean;
   rooms: PlacedRoom[];
   unplaced: { name: string; reason: string }[];
   openings: PlanOpening[];
@@ -758,13 +769,26 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
   // A room inside another is under the same roof.
   for (const r of rooms) if (r.host !== null && roomRoof[r.index] === null) roomRoof[r.index] = roomRoof[r.host];
 
-  // 9. Attic rooms: walls up to the roof.
+  // 9. Attic rooms: walls up to the roof (of this floor, or of the floor below it lies in).
+  let insideRoof = false;
+  const input0 = input;
   placedInputs.forEach((input, ri) => {
     if (!input.followRoof) return;
     const r = rooms[ri];
     const rr = roomRoof[ri];
     if (rr === null) {
-      warnings.push(`${r.name} volgt de kap, maar ligt niet onder een kap. Voor de tekening is 2,600 m aangenomen.`);
+      // Under the roof of the floor below?
+      const around = (input0.roofsAround ?? []).find((rf) => {
+        const c = rf.ridge === 'x' ? r.centroid.y : r.centroid.x;
+        const v = rf.ridge === 'x' ? r.centroid.x : r.centroid.y;
+        return c >= rf.profile[0].c - 0.01 && c <= rf.profile[rf.profile.length - 1].c + 0.01 && v >= rf.vMin - 0.01 && v <= rf.vMax + 0.01;
+      });
+      if (around) {
+        followRoof(r, around, warnings);
+        insideRoof = true;
+        return;
+      }
+      if (input.followRoof === true) warnings.push(`${r.name} volgt de kap, maar ligt niet onder een kap. Voor de tekening is 2,600 m aangenomen.`);
       return;
     }
     followRoof(r, roofs[rr], warnings);
@@ -792,6 +816,7 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
     roof: roofs[0] ?? null,
     roomRoof,
     flatThickness: input.flatThickness ?? 0.3,
+    insideRoof: insideRoof && roofs.length === 0,
     warnings: [...new Set(warnings)],
   };
 }
@@ -833,6 +858,30 @@ function polygonCentroid(points: Point[]): Point | null {
     cy += (p.y + q.y) * f;
   }
   return { x: cx / (6 * a), y: cy / (6 * a) };
+}
+
+/**
+ * A roof of the floor below seen from a floor that lies inside it: plan coordinates of the floor
+ * below are this floor's plus `shift`, heights are `dz` lower.
+ */
+export function roofSeenFrom(roof: PlacedRoof, shift: Point, dz: number): PlacedRoof {
+  const dc = roof.ridge === 'x' ? shift.y : shift.x;
+  const dv = roof.ridge === 'x' ? shift.x : shift.y;
+  const move = (p: { c: number; z: number }) => ({ ...p, c: p.c - dc, z: p.z - dz });
+  return {
+    ...roof,
+    profile: roof.profile.map(move),
+    eaves: roof.eaves.map(move),
+    from: roof.from - dv,
+    to: roof.to - dv,
+    vMin: roof.vMin - dv,
+    vMax: roof.vMax - dv,
+    ridgeHeight: roof.ridgeHeight - dz,
+    rooms: [],
+    dormers: [],
+    windows: [],
+    heightAt: (c: number) => roof.heightAt(c + dc) - dz,
+  };
 }
 
 /** Height of a wall at distance s along it, following its top polyline or the corner heights. */

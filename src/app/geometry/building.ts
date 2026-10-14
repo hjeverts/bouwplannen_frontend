@@ -221,7 +221,7 @@ function topsOf(levels: Level[], lv: Level) {
   const plan = lv.plan;
   const grown = plan.rooms.map((r) => grow(r.points, plan.outerWall));
   // A floor without walls (loft) lies inside this one: it does not cut the walls off.
-  const above = levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base && !l.open);
+  const above = levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base && !l.open && !l.plan.insideRoof);
   /** Upper floors' outlines in this floor's coordinates. */
   const aboveRings = above.map((a) => ({
     level: a,
@@ -353,7 +353,8 @@ function dedupe(pts: P3[]): P3[] {
 export function exteriorFaces(levels: Level[]): Face[] {
   const faces: Face[] = [];
   levels.forEach((lv, li) => {
-    if (lv.open) return; // a loft inside the floor below: not seen from outside
+    // A loft inside the floor below, or an attic inside its roof: no facades or roof of its own.
+    if (lv.open || lv.plan.insideRoof) return;
     const { plan, offset } = lv;
     const tops = topsOf(levels, lv);
     const facades: Face[] = [];
@@ -435,7 +436,7 @@ export function exteriorFaces(levels: Level[]): Face[] {
       let area: MultiPolygon = intersection([toRing(tops.grown[ri])], footprintGeom as MultiPolygon);
       const others = plan.rooms.filter((x) => x.index !== ri && x.host !== ri).map((x) => [toRing(x.points)] as ClipPolygon);
       if (others.length) area = difference(area, ...others);
-      for (const above of levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base && !l.open)) {
+      for (const above of levels.filter((l) => l.number === lv.number + 1 && l.base > lv.base && !l.open && !l.plan.insideRoof)) {
         const shifted = above.plan.footprint.map((poly) => poly.map((ring) => toRing(ring.map((p) => ({ x: p.x + above.offset.x - lv.offset.x, y: p.y + above.offset.y - lv.offset.y })))));
         if (shifted.length) area = difference(area, shifted as MultiPolygon);
       }
@@ -487,6 +488,24 @@ export function exteriorFaces(levels: Level[]): Face[] {
           { kind: 'flat', pts: d.top.map(shift), holes: [], normal: { x: 0, y: 0, z: 1 }, decals: [], level: li, layer: 2, host },
         );
       }
+    }
+  });
+  // Windows of an attic inside the roof of the floor below sit in that floor's gables.
+  levels.forEach((lv) => {
+    if (!lv.plan.insideRoof) return;
+    const facades = faces.filter((f) => f.kind === 'facade');
+    for (const o of lv.plan.openings.filter((x) => x.exterior)) {
+      const d = openingDecal(o, lv.base, lv.offset, lv.plan.outerWall);
+      if (!d) continue;
+      const turned = (f: Face) => Math.abs(f.normal.x + o.inward.x) < 0.02 && Math.abs(f.normal.y + o.inward.y) < 0.02;
+      const spans = (f: Face) => {
+        const zs = f.pts.map((p) => p.z);
+        return Math.min(...zs) <= d.pts[0].z + 1e-6 && Math.max(...zs) >= d.pts[0].z - 1e-6;
+      };
+      const host =
+        facades.find((f) => turned(f) && spans(f) && onBottom(d.pts[0], f) && onBottom(d.pts[1], f)) ??
+        facades.find((f) => turned(f) && spans(f) && (onBottom(d.pts[0], f) || onBottom(d.pts[1], f)));
+      host?.decals.push(d);
     }
   });
   return faces;

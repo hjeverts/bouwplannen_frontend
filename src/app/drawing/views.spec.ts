@@ -743,3 +743,95 @@ describe('attic through the model', () => {
     expect(projectToCsv({ id: 'p', name: 'p', created: now, updated: now, items } as never)).toContain('Zolder vloer ≥ 1,50 m;41,00 m²');
   });
 });
+
+describe('attic floor inside the roof of the floor below', () => {
+  const now = new Date().toISOString();
+  const vorm = (id: string, h: string, mode: string, openings: unknown[] = []) => ({
+    id,
+    kind: 'vorm',
+    name: id,
+    notes: '',
+    updated: now,
+    method: 'hoeken',
+    sides: ['8,2', '7,4', '8,2', '7,4'],
+    diagonals: [''],
+    flips: [false, false, false, false],
+    angles: ['90', '90'],
+    height: h,
+    heightMode: mode,
+    heights: ['', '', '', ''],
+    openings,
+  });
+  const floor = (id: string, room: string, extra: object) => ({
+    id,
+    kind: 'plattegrond',
+    name: id,
+    notes: '',
+    updated: now,
+    rooms: [{ roomId: room }],
+    outerWall: '0,3',
+    measuredWidth: '',
+    measuredDepth: '',
+    turn: 0,
+    roofId: '',
+    ridge: 'x',
+    roofFlip: false,
+    plateHeight: '',
+    below: '',
+    floorThickness: '0,25',
+    shiftX: '',
+    shiftY: '',
+    ...extra,
+  });
+  const items = [
+    vorm('Slaapverdieping', '2,5', 'gelijk'),
+    vorm('Zolder', '', 'kap', [{ name: 'zolderraam', wall: '1', offset: '3,2', width: '1', height: '1,2', sill: '0,8' }]),
+    { id: 'kap', kind: 'dak', name: 'Kap', notes: '', updated: now, roofType: 'zadeldak', span: '8', rise: '', pitch: '45', rafter: '', ridgeOffset: '', overhang: '', length: '' },
+    floor('v1', 'Slaapverdieping', { roofId: 'kap' }),
+    floor('zo', 'Zolder', { below: 'v1' }),
+  ] as unknown as PlattegrondItem[];
+
+  it('lets the attic rooms follow the roof that stands on the floor below, without assuming a height', () => {
+    const r = computePlattegrond(items[4], items);
+    if (r.status !== 'ok') throw new Error(r.message);
+    const plan = r.value.plan;
+    expect(plan.warnings).toEqual([]);
+    expect(r.value.assumedHeight).toEqual([]);
+    expect(plan.insideRoof).toBe(true);
+    const room = plan.rooms[0];
+    expect(room.followsRoof).toBe(true);
+    // Plate 2,5 m above the floor below, attic floor 2,5 + 0,25 higher: 0,05 m at the inside of the eaves wall, 3,75 m under the ridge.
+    expect(room.heights[0]).toBeCloseTo(0.05, 9);
+    expect(Math.max(...room.walls[1].top!.map((p) => p.z))).toBeCloseTo(3.75, 9);
+    expect(room.volume).toBeCloseTo(8.2 * 2 * 7.03, 6);
+
+    const levels = computeBuilding(items[4], items);
+    expect(levels.map((l) => l.id)).toEqual(['v1', 'zo']);
+    expect(levels[1].base).toBeCloseTo(2.75, 9);
+    const faces = exteriorFaces(levels);
+    // No facades or flat roof for the attic: the floor below with its roof is the outside.
+    expect(faces.every((f) => f.level === 0)).toBe(true);
+    const decals = faces.flatMap((f) => f.decals);
+    expect(decals.map((d) => d.name)).toEqual(['zolderraam']);
+    expect(Math.min(...decals[0].pts.map((p) => p.z))).toBeCloseTo(2.75 + 0.8, 9);
+    // The elevation shows the attic floor as a level.
+    expect(elevationView(levels, 'rechts').prims.some((p) => p.t === 'text' && p.text === '+2750')).toBe(true);
+  });
+});
+
+describe('rooms without a height', () => {
+  it('follow the roof when there is one, and get an assumed height otherwise', () => {
+    const now = new Date().toISOString();
+    const vorm = { id: 'r', kind: 'vorm', name: 'Zolder', notes: '', updated: now, method: 'hoeken', sides: ['8,2', '7,4', '8,2', '7,4'], diagonals: [''], flips: [false, false, false, false], angles: ['90', '90'], height: '', heightMode: 'gelijk', heights: ['', '', '', ''], openings: [] };
+    const dak = { id: 'kap', kind: 'dak', name: 'Kap', notes: '', updated: now, roofType: 'zadeldak', span: '8', rise: '', pitch: '45', rafter: '', ridgeOffset: '', overhang: '', length: '' };
+    const plan = (roofId: string) => ({ id: 'p', kind: 'plattegrond', name: 'p', notes: '', updated: now, rooms: [{ roomId: 'r' }], outerWall: '0,3', measuredWidth: '', measuredDepth: '', turn: 0, roofId, ridge: 'x', roofFlip: false, plateHeight: '', below: '', floorThickness: '0,3', shiftX: '', shiftY: '' });
+    const withRoof = computePlattegrond(plan('kap') as never, [vorm, dak] as never);
+    if (withRoof.status !== 'ok') throw new Error(withRoof.message);
+    expect(withRoof.value.assumedHeight).toEqual([]);
+    expect(withRoof.value.plan.rooms[0].followsRoof).toBe(true);
+    const flat = computePlattegrond(plan('') as never, [vorm, dak] as never);
+    if (flat.status !== 'ok') throw new Error(flat.message);
+    expect(flat.value.assumedHeight).toEqual(['Zolder']);
+    expect(flat.value.plan.warnings).toEqual([]);
+  });
+});

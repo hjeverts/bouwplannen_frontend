@@ -1,5 +1,5 @@
-import { Level, LevelInput, stackLevels } from '../geometry/building';
-import { buildFloorPlan, FloorPlan, PlanOpeningInput, PlanRoofInput, PlanRoomInput, PlanVoidInput } from '../geometry/floorplan';
+import { heightUnder, Level, LevelInput, stackLevels } from '../geometry/building';
+import { buildFloorPlan, FloorPlan, PlanOpeningInput, PlanRoofInput, PlanRoomInput, PlanVoidInput, roofSeenFrom } from '../geometry/floorplan';
 import { GeometryError, Point } from '../geometry/geometry';
 import { parseLength } from '../geometry/units';
 import { computeDak, computeVorm, Outcome } from './compute';
@@ -30,7 +30,7 @@ function lengthOr(text: string | undefined, label: string, fallback: number | nu
   return v;
 }
 
-export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcome<PlattegrondResult> {
+export function computePlattegrond(item: PlattegrondItem, items: Item[], seen: Set<string> = new Set()): Outcome<PlattegrondResult> {
   try {
     if (item.rooms.length === 0) return { status: 'incomplete', message: 'Voeg ruimtes toe. Meet elke ruimte eerst als Vorm, met hoogte en deuren en ramen.' };
     const vorms = new Map(items.filter((i): i is VormItem => i.kind === 'vorm').map((i) => [i.id, i]));
@@ -51,7 +51,9 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
       const { shape, room } = r.value;
       let heights: number[];
       const openings: PlanOpeningInput[] = [];
-      const followRoof = vorm.heightMode === 'kap';
+      // No height entered: under a roof the walls follow it (an attic), otherwise a height is assumed.
+      const noHeight = !room && vorm.heightMode !== 'kap' && !r.value.roomError;
+      const followRoof: boolean | 'auto' = vorm.heightMode === 'kap' ? true : noHeight ? 'auto' : false;
       if (followRoof) {
         // Heights come from the roof in the floor plan; until then a placeholder.
         heights = shape.points.map(() => DEFAULT_HEIGHT);
@@ -187,7 +189,7 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
       });
     }
 
-    const plan = buildFloorPlan({
+    const planInput = {
       open: !!item.open,
       rooms,
       voids,
@@ -197,7 +199,24 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
       turn: item.turn,
       roofs,
       flatThickness: lengthOr(item.flatThickness, 'Dikte plat dak', 0.3) ?? 0.3,
-    });
+    };
+    let plan = buildFloorPlan(planInput);
+    // An attic floor without a roof of its own lies inside the roof of the floor below: its rooms
+    // that follow the roof take that roof, seen from this floor's height and position.
+    const loose = plan.rooms.some((r) => rooms.find((x) => x.id === r.id)?.followRoof && !r.followsRoof);
+    if (loose && item.below && !seen.has(item.id)) {
+      const belowItem = items.find((i): i is PlattegrondItem => i.kind === 'plattegrond' && i.id === item.below);
+      const below = belowItem ? computePlattegrond(belowItem, items, new Set([...seen, item.id])) : null;
+      if (below?.status === 'ok' && below.value.plan.roofs.length) {
+        const inset = item.open ? below.value.plan.outerWall : 0;
+        const shift = { x: lengthOr(item.shiftX, 'Verschuiving', null) ?? inset, y: lengthOr(item.shiftY, 'Verschuiving', null) ?? inset };
+        const thickness = lengthOr(item.floorThickness, 'Vloerdikte', 0.3) ?? 0.3;
+        const dz = lengthOr(item.floorHeight, 'Hoogte vloer', null) ?? heightUnder(below.value.plan, { x: 0, y: 0 }, plan, shift) + thickness;
+        plan = buildFloorPlan({ ...planInput, roofsAround: below.value.plan.roofs.map((r) => roofSeenFrom(r, shift, dz)) });
+      }
+    }
+    // Rooms without a height that are not under any roof: the drawing assumes a height.
+    if (!item.open) for (const x of rooms) if (x.followRoof === 'auto' && !plan.rooms.find((pr) => pr.id === x.id)?.followsRoof) assumedHeight.push(x.name);
     const first = roofInfo.find((x) => !x.problem && x.plateHeight !== null) ?? null;
     const roofProblem = roofInfo.map((x) => x.problem).filter(Boolean).join(' ') || null;
     return {

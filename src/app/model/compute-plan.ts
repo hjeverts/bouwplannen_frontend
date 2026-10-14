@@ -1,4 +1,5 @@
 import { heightUnder, Level, LevelInput, stackLevels } from '../geometry/building';
+import { CLADDING_TYPES, isHex, Look, resolveFinish, ROOF_TYPES } from '../geometry/finishes';
 import { buildFloorPlan, FloorPlan, PlanOpeningInput, PlanRoofInput, PlanRoomInput, PlanVoidInput, roofSeenFrom } from '../geometry/floorplan';
 import { GeometryError, Point } from '../geometry/geometry';
 import { formatLength, lengthUnit, parseLength } from '../geometry/units';
@@ -245,6 +246,23 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[], seen: S
   }
 }
 
+/** The materials chosen for a floor; null when nothing is chosen (the plain default look). */
+export function lookOf(item: PlattegrondItem): Look | null {
+  const rooms: Look['rooms'] = {};
+  for (const e of item.rooms) {
+    const f = resolveFinish(e.cladding, CLADDING_TYPES);
+    if (f) rooms[e.roomId] = f;
+  }
+  const roofs: Look['roofs'] = {};
+  for (const [i, e] of roofEntries(item).entries()) {
+    const covering = resolveFinish(e.covering, ROOF_TYPES);
+    const dormer = resolveFinish(e.dormerCladding, CLADDING_TYPES);
+    if (covering || dormer) roofs[String(i)] = { covering, dormer };
+  }
+  const look: Look = { cladding: resolveFinish(item.cladding, CLADDING_TYPES), rooms, frame: isHex(item.frameColour) ? item.frameColour.toLowerCase() : null, roofs };
+  return look.cladding || look.frame || Object.keys(rooms).length || Object.keys(roofs).length ? look : null;
+}
+
 /** Floors that stand on (or carry) this one, stacked, for the 3D view and the elevations. */
 export function computeBuilding(item: PlattegrondItem, items: Item[]): Level[] {
   const plans = items.filter((i): i is PlattegrondItem => i.kind === 'plattegrond');
@@ -264,7 +282,7 @@ export function computeBuilding(item: PlattegrondItem, items: Item[]): Level[] {
     } catch {
       // Unreadable values are reported in that floor's own editor.
     }
-    inputs.push({ id: p.id, name: p.name, plan: r.value.plan, below: p.below || null, floorThickness: thickness, dx: dx ?? NaN, dy: dy ?? NaN, floorHeight, open: !!p.open });
+    inputs.push({ id: p.id, name: p.name, plan: r.value.plan, below: p.below || null, floorThickness: thickness, dx: dx ?? NaN, dy: dy ?? NaN, floorHeight, open: !!p.open, look: lookOf(p) });
   }
   // Without a shift, a floor lines up with the outside of the walls of the floor below; a loft
   // (no walls) with the inside of those walls.

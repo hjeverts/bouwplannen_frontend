@@ -5,6 +5,8 @@ import { computeDak } from '../model/compute';
 import { PlattegrondResult } from '../model/compute-plan';
 import { DakItem, DormerEntry, RoofEntry, RoofWindowEntry } from '../model/models';
 import { MeasureField } from '../ui/measure-field';
+import { FinishPicker } from '../ui/finish-picker';
+import { CLADDING_TYPES, ROOF_COLOURS, ROOF_TYPES, WALL_COLOURS } from '../geometry/finishes';
 
 interface RoomRef {
   id: string;
@@ -14,7 +16,7 @@ interface RoomRef {
 /** Roofs of a floor: which roof over which rooms, its direction, dormers and roof windows. */
 @Component({
   selector: 'app-roofs-panel',
-  imports: [MeasureField],
+  imports: [MeasureField, FinishPicker],
   template: `
     @if (daks().length === 0) {
       <p class="hint">Voeg een Dak & spant toe om een kap op deze verdieping te zetten. Ruimtes zonder kap krijgen een plat dak.</p>
@@ -66,6 +68,14 @@ interface RoomRef {
         @if (info()?.roofInfo?.[i]?.problem; as prob) {
           <p class="status status--error">{{ prob }}</p>
         }
+        <app-finish-picker
+          label="Dakbedekking"
+          [types]="roofTypes"
+          [colours]="roofColours"
+          [value]="e.covering"
+          (valueChange)="patch(i, { covering: $event })"
+          emptyLabel="Niet gekozen"
+        />
 
         <h4 class="sub-title">Dakkapellen</h4>
         @for (d of e.dormers; track $index; let j = $index) {
@@ -95,6 +105,16 @@ interface RoomRef {
               <app-measure-field label="Raam hoogte" [value]="d.windowHeight" (valueChange)="patchDormer(i, j, { windowHeight: $event })" />
             </div>
           </div>
+        }
+        @if (e.dormers.length) {
+          <app-finish-picker
+            label="Bekleding dakkapellen"
+            [types]="claddingTypes"
+            [colours]="wallColours"
+            [value]="e.dormerCladding"
+            (valueChange)="patch(i, { dormerCladding: $event })"
+            emptyLabel="Niet gekozen"
+          />
         }
         <h4 class="sub-title">Dakramen</h4>
         @for (w of e.windows; track $index; let j = $index) {
@@ -141,6 +161,11 @@ export class RoofsPanel {
   readonly plan = input<FloorPlan | null>(null);
   readonly info = input<PlattegrondResult | null>(null);
   readonly changed = output<RoofEntry[]>();
+
+  protected readonly roofTypes = ROOF_TYPES;
+  protected readonly roofColours = ROOF_COLOURS;
+  protected readonly claddingTypes = CLADDING_TYPES;
+  protected readonly wallColours = WALL_COLOURS;
 
   private readonly sections = computed(() => {
     const out = new Map<string, { fromFloor: boolean; planes: number }>();

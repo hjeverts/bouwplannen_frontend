@@ -109,6 +109,12 @@ export interface MatenItem extends BaseItem {
   entries: MaatEntry[];
 }
 
+/** A chosen material: type ('' = not chosen) and colour ('#rrggbb'; '' = the material's own colour). */
+export interface FinishEntry {
+  type: string;
+  colour: string;
+}
+
 /** A room (a Vorm item) placed in a floor plan. */
 export interface PlanRoomEntry {
   roomId: string;
@@ -127,6 +133,8 @@ export interface PlanRoomEntry {
   inside?: boolean;
   /** Inside: from the other room's wall to this room's wall (0 = it uses that wall). */
   distance?: string;
+  /** Cladding of this room's outside walls, instead of the floor's (an extension in wood). */
+  cladding?: FinishEntry;
 }
 
 /** A stairwell or other hole in the floor, measured in a room from one of its walls. */
@@ -181,6 +189,10 @@ export interface RoofEntry {
   plateHeight: string;
   dormers: DormerEntry[];
   windows: RoofWindowEntry[];
+  /** Roof covering (pannen, golfplaat …) and its colour. */
+  covering?: FinishEntry;
+  /** Cladding of the dormers on this roof. */
+  dormerCladding?: FinishEntry;
 }
 
 /** Roofs of a floor plan; older items have a single roofId. */
@@ -226,6 +238,10 @@ export interface PlattegrondItem extends BaseItem {
   roofs?: RoofEntry[];
   /** Thickness of flat roofs (rooms without a roof or a floor above). */
   flatThickness?: string;
+  /** Cladding of the outside walls (metselwerk, rabat …) and its colour. */
+  cladding?: FinishEntry;
+  /** Colour of the window frames and doors ('#rrggbb'; '' = default). */
+  frameColour?: string;
 }
 
 export type Item = HoekItem | DriehoekItem | VormItem | DakItem | MatenItem | PlattegrondItem;

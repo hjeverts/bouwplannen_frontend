@@ -10,6 +10,8 @@ import { Point } from '../geometry/geometry';
 export type Prim =
   | { t: 'poly'; rings: Point[][]; cls: string; fill?: string }
   | { t: 'line'; pts: Point[]; cls: string; closed?: boolean }
+  /** Many loose line pieces in one path (material patterns); lies within faces, so not measured. */
+  | { t: 'segs'; segs: [Point, Point][]; cls: string; stroke?: string }
   | {
       t: 'text';
       at: Point;
@@ -84,6 +86,7 @@ export function measure(view: View, pl: Placement): Box {
   for (const p of view.prims) {
     if (p.t === 'poly') p.rings.forEach((r) => r.forEach((q) => addPt(toPaper(q, pl))));
     else if (p.t === 'line') p.pts.forEach((q) => addPt(toPaper(q, pl)));
+    else if (p.t === 'segs') continue;
     else if (p.t === 'text') {
       const s = (p.size ?? TEXT) * pl.k;
       const c = toPaper(p.at, pl);
@@ -200,6 +203,16 @@ export function renderPrims(view: View, pl: Placement): string {
     } else if (p.t === 'line') {
       const d = p.pts.map((q, i) => `${i ? 'L' : 'M'}${n2(toPaper(q, pl).x)} ${n2(toPaper(q, pl).y)}`).join('') + (p.closed ? 'Z' : '');
       out.push(`<path class="${cx(p.cls)}" d="${d}"/>`);
+    } else if (p.t === 'segs') {
+      const d = p.segs
+        .map(([a, b]) => {
+          const A = toPaper(a, pl);
+          const B = toPaper(b, pl);
+          return `M${n2(A.x)} ${n2(A.y)}L${n2(B.x)} ${n2(B.y)}`;
+        })
+        .join('');
+      const stroke = p.stroke ? ` style="stroke:${p.stroke}"` : '';
+      out.push(`<path class="${cx(p.cls)}" d="${d}"${stroke}/>`);
     } else if (p.t === 'text') {
       const c = toPaper(p.at, pl);
       const x = c.x + (p.dx ?? 0) * pl.k;
@@ -247,6 +260,7 @@ export function drawingStyle(k: number): string {
 .bp .bp-f-glass{fill:#8fb3c9;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
 .bp .bp-f-roll{fill:#7c858a;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
 .bp .bp-slat{fill:none;stroke:#e6e9e4;stroke-opacity:.7;stroke-width:${w(0.1)}}
+.bp .bp-pattern{fill:none;stroke:currentColor;stroke-width:${w(0.09)};stroke-linecap:butt}
 .bp .bp-f-door{fill:#7a5a40;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
 .bp .bp-dim-line{fill:none;stroke:var(--dim,#1f5f8b);stroke-width:${w(0.15)}}
 .bp .bp-dim-text{fill:var(--dim,#1f5f8b)}

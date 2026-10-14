@@ -1715,3 +1715,71 @@ app-house-viewer {
 .unit-pick .segmented {
   justify-self: start;
 }
+
+/* Material and colour choice (gevelbekleding, kozijnen, dakbedekking) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.finish {
+  display: grid;
+  gap: 8px;
+  margin-block: 6px 12px;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.swatch {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+.swatch[aria-checked='true'],
+.swatch--on {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+.swatch--none {
+  background: linear-gradient(135deg, var(--surface) 45%, var(--muted) 47%, var(--muted) 53%, var(--surface) 55%);
+}
+.swatch--own {
+  display: grid;
+  place-items: center;
+  background: conic-gradient(#c0392b, #e2ab00, #2d7a4e, #1f5f8b, #6b3fa0, #c0392b);
+  color: #fff;
+  font-weight: 700;
+  text-shadow: 0 0 2px #000;
+}
+.swatch--own input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.swatch--own:focus-within {
+  outline: 3px solid var(--ink);
+  outline-offset: 1px;
+}
+.swatch-name {
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.finish-room {
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}

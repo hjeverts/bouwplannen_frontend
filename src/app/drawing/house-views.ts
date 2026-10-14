@@ -3,6 +3,7 @@
  * elevations with dimensions. Output is the vector format of ./vector, in metres.
  */
 import { Camera, cutawayFaces, exteriorFaces, Level, project, Projected } from '../geometry/building';
+import { Finish, finishLabel, colourName, hexToRgb, lineColour } from '../geometry/finishes';
 import { FloorPlan, pointInPolygon } from '../geometry/floorplan';
 import { Point } from '../geometry/geometry';
 import { formatArea } from '../geometry/units';
@@ -10,7 +11,7 @@ import { Prim, View } from './vector';
 
 const mm = (m: number) => String(Math.round(m * 1000));
 
-const COLOURS: Record<Projected['kind'], [number, number, number]> = {
+const COLOURS: Record<Exclude<Projected['kind'], 'frame'>, [number, number, number]> = {
   facade: [221, 212, 196],
   dormer: [236, 233, 226],
   roof: [112, 78, 64],
@@ -23,18 +24,22 @@ const COLOURS: Record<Projected['kind'], [number, number, number]> = {
   roldeur: [120, 128, 132],
 };
 
-function shade(kind: Projected['kind'], light: number): string {
-  const f = 0.64 + 0.36 * light;
-  const [r, g, b] = COLOURS[kind];
-  return `rgb(${Math.round(r * f)},${Math.round(g * f)},${Math.round(b * f)})`;
+function shaded(f: Projected): [number, number, number] {
+  const k = 0.64 + 0.36 * f.light;
+  const [r, g, b] = f.colour ? hexToRgb(f.colour) : COLOURS[f.kind === 'frame' ? 'facade' : f.kind];
+  return [Math.round(r * k), Math.round(g * k), Math.round(b * k)];
 }
+
+const rgb = ([r, g, b]: [number, number, number]) => `rgb(${r},${g},${b})`;
+const isDecal = (k: Projected['kind']) => k === 'glass' || k === 'door' || k === 'roldeur';
 
 function projectedPrims(faces: Projected[], labels = true): Prim[] {
   const prims: Prim[] = [];
   for (const f of faces) {
     const cls = f.kind === 'glass' ? 'f-glass' : f.kind === 'door' ? 'f-door' : f.kind === 'roldeur' ? 'f-roll' : 'f';
-    const decal = f.kind === 'glass' || f.kind === 'door' || f.kind === 'roldeur';
-    prims.push({ t: 'poly', rings: f.rings, cls, fill: decal ? undefined : shade(f.kind, f.light) });
+    const fill = isDecal(f.kind) && !f.colour ? undefined : shaded(f);
+    prims.push({ t: 'poly', rings: f.rings, cls, fill: fill && rgb(fill) });
+    if (f.lines?.length && fill) prims.push({ t: 'segs', segs: f.lines, cls: 'pattern', stroke: lineColour(fill) });
     if (f.kind === 'roldeur' && f.rings[0].length === 4) {
       // Horizontal slats about every 25 cm (bottom-left, bottom-right, top-right, top-left).
       const [bl, br, tr, tl] = f.rings[0];
@@ -65,12 +70,18 @@ function projectedPrims(faces: Projected[], labels = true): Prim[] {
         t: 'text',
         at: { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 },
         text: f.name,
-        cls: f.kind === 'door' || f.kind === 'roldeur' ? 'label on-dark' : 'label muted',
+        cls: (f.kind === 'door' && !(f.colour && light(f.colour))) || f.kind === 'roldeur' ? 'label on-dark' : 'label muted',
         size: 2,
       });
     }
   }
   return prims;
+}
+
+/** A light colour (white or cream frames): dark text on it. */
+function light(hex: string): boolean {
+  const [r, g, b] = hexToRgb(hex);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150;
 }
 
 export interface PlanViewOptions {
@@ -377,7 +388,7 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
   for (const lvl of floors) {
     const stops = new Set<number>([minX, maxX]);
     for (const f of faces) {
-      if (!f.frontal || f.level !== lvl) continue;
+      if (!f.frontal || f.inner || f.level !== lvl) continue;
       const fx = f.rings[0].map((p) => p.x);
       stops.add(Math.min(...fx));
       stops.add(Math.max(...fx));
@@ -405,7 +416,7 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
   faces.forEach((f, i) => {
     if (f.kind !== 'facade' && f.kind !== 'dormer' && f.kind !== 'flat' && f.kind !== 'roof') return;
     for (const p of f.rings[0]) {
-      const hidden = faces.slice(i + 1).some((g) => g.kind !== 'glass' && g.kind !== 'door' && g.kind !== 'roldeur' && pointInPolygon(p, g.rings[0], -0.01));
+      const hidden = faces.slice(i + 1).some((g) => !isDecal(g.kind) && g.kind !== 'frame' && pointInPolygon(p, g.rings[0], -0.01));
       if (!hidden) heights.add(Math.round(p.y * 1e4) / 1e4);
     }
   });
@@ -430,5 +441,33 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
     prims.push({ t: 'text', at: { x: roofMin - 0.8, y: h }, text: h === 0 ? '±0' : `+${mm(h)}`, cls: 'label-sub', size: 2.4, anchor: 'end', dx: -1.2 });
     prims.push({ t: 'line', pts: [{ x: roofMin - 0.8, y: h }, { x: roofMin - 0.35, y: h }], cls: 'sym-thin' });
   }
+  // Materials, under the dimensions.
+  materialNotes(levels).forEach((text, i) => {
+    prims.push({ t: 'text', at: { x: minX, y: 0 }, text, cls: 'label-sub', size: 2.2, anchor: 'start', dy: row - 7 - i * 3.6 });
+  });
   return { prims, title: SIDE_LABELS[side], scalable: true };
+}
+
+/** "Gevel: metselwerk, rood" lines for the materials chosen on these floors. */
+export function materialNotes(levels: Level[]): string[] {
+  const walls = new Set<string>();
+  const frames = new Set<string>();
+  const roofs = new Set<string>();
+  const dormers = new Set<string>();
+  const add = (set: Set<string>, f: Finish | null | undefined) => f && set.add(finishLabel(f));
+  for (const lv of levels) {
+    const look = lv.look;
+    if (!look) continue;
+    if (!lv.open) {
+      add(walls, look.cladding);
+      for (const r of lv.plan.rooms) add(walls, look.rooms[r.id]);
+    }
+    if (look.frame) frames.add(colourName(look.frame).toLowerCase());
+    for (const roof of lv.plan.roofs) {
+      add(roofs, look.roofs[roof.key]?.covering);
+      if (roof.dormers.length) add(dormers, look.roofs[roof.key]?.dormer);
+    }
+  }
+  const line = (label: string, set: Set<string>) => (set.size ? [`${label}: ${[...set].join(' / ')}`] : []);
+  return [...line('Gevel', walls), ...line('Kozijnen', frames), ...line('Dak', roofs), ...line('Dakkapel', dormers)];
 }

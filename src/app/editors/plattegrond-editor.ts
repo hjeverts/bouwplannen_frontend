@@ -3,10 +3,12 @@ import { HouseViewer } from '../drawing/house-viewer';
 import { formatArea, formatLength, formatMm, formatVolume, lengthInput } from '../geometry/units';
 import { computeDak, computeVorm } from '../model/compute';
 import { computeBuilding, computePlattegrond, possibleBelow } from '../model/compute-plan';
-import { DakItem, PlanRoomEntry, PlattegrondItem, RoofEntry, roofEntries, VoidEntry, VormItem } from '../model/models';
+import { DakItem, FinishEntry, PlanRoomEntry, PlattegrondItem, RoofEntry, roofEntries, VoidEntry, VormItem } from '../model/models';
 import { ProjectStore } from '../model/project-store';
 import { MeasureField } from '../ui/measure-field';
 import { RoofsPanel } from './roofs-panel';
+import { FinishPicker } from '../ui/finish-picker';
+import { CLADDING_TYPES, FRAME_COLOURS, WALL_COLOURS } from '../geometry/finishes';
 import { ResultRow, Results } from '../ui/results';
 
 interface RoomChoice {
@@ -17,7 +19,7 @@ interface RoomChoice {
 
 @Component({
   selector: 'app-plattegrond-editor',
-  imports: [MeasureField, Results, HouseViewer, RoofsPanel],
+  imports: [MeasureField, Results, HouseViewer, RoofsPanel, FinishPicker],
   template: `
     <p class="lead">
       Meet eerst elke ruimte als <strong>Vorm</strong>, met hoogte en deuren en ramen. Hier leg je ze tegen elkaar: kies per ruimte tegen welke
@@ -165,6 +167,38 @@ interface RoomChoice {
     </details>
     }
 
+    @if (!item().open) {
+      <details class="more" [open]="!!item().cladding?.type || !!item().frameColour">
+        <summary>Gevel en kozijnen</summary>
+        <p class="hint">Te zien in 3D en op de gevels. De dakbedekking kies je per kap, hieronder bij Kap.</p>
+        <app-finish-picker
+          label="Gevelbekleding"
+          [types]="claddingTypes"
+          [colours]="wallColours"
+          [value]="item().cladding"
+          (valueChange)="set('cladding', $event)"
+          emptyLabel="Niet gekozen"
+        />
+        <app-finish-picker label="Kozijnkleur (ramen en deuren)" [colours]="frameColours" [value]="{ type: '', colour: item().frameColour ?? '' }" (valueChange)="set('frameColour', $event.colour)" />
+        @if (outsideRooms().length > 1) {
+          <h4 class="sub-title">Andere bekleding per ruimte</h4>
+          <p class="hint">Bijvoorbeeld een houten uitbouw tegen een stenen huis.</p>
+          @for (r of outsideRooms(); track r.entry.roomId) {
+            <div class="finish-room">
+              <app-finish-picker
+                [label]="r.name"
+                [types]="claddingTypes"
+                [colours]="wallColours"
+                [value]="r.entry.cladding"
+                (valueChange)="setRoomCladding(r.index, $event)"
+                emptyLabel="Zoals de verdieping"
+              />
+            </div>
+          }
+        }
+      </details>
+    }
+
     <details class="more" [open]="!!item().below">
       <summary>Verdieping</summary>
       <div class="fields fields--3">
@@ -263,6 +297,21 @@ export class PlattegrondEditor {
   });
 
   protected readonly roofList = computed(() => roofEntries(this.item()));
+
+  protected readonly claddingTypes = CLADDING_TYPES;
+  protected readonly wallColours = WALL_COLOURS;
+  protected readonly frameColours = FRAME_COLOURS;
+
+  /** Rooms that can have outside walls (not a toilet inside a garage). */
+  protected readonly outsideRooms = computed(() =>
+    this.item()
+      .rooms.map((entry, index) => ({ entry, index, name: this.nameOf(entry.roomId) }))
+      .filter((r) => !r.entry.inside && this.vorms().some((v) => v.id === r.entry.roomId)),
+  );
+
+  protected setRoomCladding(i: number, cladding: FinishEntry): void {
+    this.setRoom(i, { cladding });
+  }
 
   protected setRoofs(roofs: RoofEntry[]): void {
     // The list replaces the single roof of older items.

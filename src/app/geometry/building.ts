@@ -6,6 +6,7 @@
 import { MultiPolygon, Polygon as ClipPolygon, Ring } from 'polygon-clipping';
 import { difference, intersection } from './clip';
 import { FloorPlan, grow, PlanOpening, pointInPolygon, signedArea, wallTopAt } from './floorplan';
+import { Finish, finishSegments, insetQuad, Look } from './finishes';
 import { Point } from './geometry';
 
 export interface LevelInput {
@@ -26,6 +27,8 @@ export interface LevelInput {
   floorHeight?: number | null;
   /** A floor without walls (loft, mezzanine) inside the volume of the floor below. */
   open?: boolean;
+  /** Cladding, frame colour and roof covering. */
+  look?: Look | null;
 }
 
 export interface Level {
@@ -47,6 +50,8 @@ export interface Level {
   thickness: number;
   /** The floor it stands on. */
   below: string | null;
+  /** Cladding, frame colour and roof covering; null = the plain default look. */
+  look: Look | null;
 }
 
 export interface P3 {
@@ -61,6 +66,8 @@ export interface Decal {
   pts: P3[];
   kind: 'glass' | 'door' | 'roldeur';
   name: string;
+  /** Colour of the frame (and of a door); absent = the default look. */
+  frame?: string;
 }
 
 export interface Face {
@@ -79,6 +86,8 @@ export interface Face {
   host?: Face;
   /** Facades: the bottom edge, for placing windows and doors. */
   edge?: [P3, P3];
+  /** Material and colour of the outside (cladding, roof covering). */
+  finish?: Finish | null;
 }
 
 /** Floors connected to `focusId` (below and above), with their heights. Floors that cannot be stacked are left out. */
@@ -109,6 +118,7 @@ export function stackLevels(inputs: LevelInput[], focusId: string): Level[] {
       open: !!l.open,
       thickness: Math.max(0, l.floorThickness),
       below: l.below && out.some((x) => x.id === l.below) ? l.below : null,
+      look: l.look ?? null,
     });
     for (const c of children) {
       const childOffset = { x: offset.x + c.dx, y: offset.y + c.dy };
@@ -270,18 +280,29 @@ function topsOf(levels: Level[], lv: Level) {
 }
 
 /** Wall face along p→q from `bottom` up to the tops, which may bend and jump. */
-function wallPolygon(p: Point, q: Point, ts: number[], bottomAt: (pt: Point, seg: number) => number, topAt: (pt: Point, seg: number) => number, offset: Point): P3[][] {
+function wallPolygon(
+  p: Point,
+  q: Point,
+  ts: number[],
+  bottomAt: (pt: Point, seg: number) => number,
+  topAt: (pt: Point, seg: number) => number,
+  offset: Point,
+  groupOf: (seg: number) => string = () => '',
+): { pts: P3[]; seg: number }[] {
   const lerp = (t: number): Point => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
-  // One polygon per run of segments where the wall is higher than its bottom.
-  const polys: P3[][] = [];
+  // One polygon per run of segments where the wall is higher than its bottom (and of one material).
+  const polys: { pts: P3[]; seg: number }[] = [];
   let bottom: P3[] = [];
   let tops: P3[] = [];
+  let start = 0;
   const flush = () => {
-    if (bottom.length >= 2) polys.push(dedupe([...bottom, ...tops.reverse()]));
+    if (bottom.length >= 2) polys.push({ pts: dedupe([...bottom, ...tops.reverse()]), seg: start });
     bottom = [];
     tops = [];
   };
   for (let k = 0; k + 1 < ts.length; k++) {
+    if (k > 0 && groupOf(k) !== groupOf(k - 1)) flush();
+    if (!bottom.length) start = k;
     const a = lerp(ts[k]);
     const b = lerp(ts[k + 1]);
     const ba = bottomAt(a, k);
@@ -317,7 +338,7 @@ function wallPolygon(p: Point, q: Point, ts: number[], bottomAt: (pt: Point, seg
     tops.push(p3(a, ta, offset), p3(b, tb, offset));
   }
   flush();
-  return polys.filter((poly) => poly.length >= 3);
+  return polys.filter((poly) => poly.pts.length >= 3);
 }
 
 /** Drop repeated points and points on a straight line between their neighbours. */
@@ -359,6 +380,11 @@ export function exteriorFaces(levels: Level[]): Face[] {
     const { plan, offset } = lv;
     const tops = topsOf(levels, lv);
     const facades: Face[] = [];
+    const look = lv.look;
+    /** Cladding of room ri (its own, or the floor's). */
+    const clad = (ri: number): Finish | null => (look ? (look.rooms[plan.rooms[ri]?.id] ?? look.cladding) : null);
+    const key = (f: Finish | null) => (f ? `${f.type}${f.colour}` : '');
+    const frame = look?.frame ?? levels.find((l) => l.id === lv.below)?.look?.frame ?? undefined;
 
     // Facades along the outline. Each piece takes the top of the room behind it.
     for (const poly of plan.footprint) {
@@ -377,11 +403,11 @@ export function exteriorFaces(levels: Level[]): Face[] {
             const m = { x: p.x + (q.x - p.x) * tm - normal.x * 0.02, y: p.y + (q.y - p.y) * tm - normal.y * 0.02 };
             return { owner: tops.ownerOf(m), upper: tops.coveredBy(m) };
           });
-          const polys = wallPolygon(p, q, ts, () => lv.base, (pt, k) => tops.top(info[k].owner, pt, info[k].upper), offset);
-          for (const pts of polys) {
+          const polys = wallPolygon(p, q, ts, () => lv.base, (pt, k) => tops.top(info[k].owner, pt, info[k].upper), offset, (k) => key(clad(info[k].owner)));
+          for (const { pts, seg } of polys) {
             const bottom = pts.filter((x) => Math.abs(x.z - lv.base) < 1e-6);
             const edge: [P3, P3] = [bottom[0] ?? pts[0], bottom[bottom.length - 1] ?? pts[1]];
-            facades.push({ kind: 'facade', pts, holes: [], normal, decals: [], level: li, layer: 1, edge });
+            facades.push({ kind: 'facade', pts, holes: [], normal, decals: [], level: li, layer: 1, edge, finish: clad(info[seg].owner) });
           }
         }
       });
@@ -389,13 +415,10 @@ export function exteriorFaces(levels: Level[]): Face[] {
     for (const o of plan.openings.filter((x) => x.exterior)) {
       const d = openingDecal(o, lv.base, offset, plan.outerWall);
       if (!d) continue;
-      const host = facades.find(
-        (f) =>
-          Math.abs(f.normal.x + o.inward.x) < 0.02 &&
-          Math.abs(f.normal.y + o.inward.y) < 0.02 &&
-          onBottom(d.pts[0], f) &&
-          onBottom(d.pts[1], f),
-      );
+      if (frame) d.frame = frame;
+      const turned = (f: Face) => Math.abs(f.normal.x + o.inward.x) < 0.02 && Math.abs(f.normal.y + o.inward.y) < 0.02;
+      // A window across the border of two claddings sits on the piece where it starts.
+      const host = facades.find((f) => turned(f) && onBottom(d.pts[0], f) && onBottom(d.pts[1], f)) ?? facades.find((f) => turned(f) && onBottom(d.pts[0], f));
       if (host) host.decals.push(d);
     }
     faces.push(...facades);
@@ -424,7 +447,8 @@ export function exteriorFaces(levels: Level[]): Face[] {
             (pt, k) => tops.top(nb.room, pt, info[k].otherUpper),
             offset,
           );
-          for (const pts of polys) faces.push({ kind: 'facade', pts, holes: [], normal: { x: w.inward.x, y: w.inward.y, z: 0 }, decals: [], level: li, layer: 1 });
+          // The part rising above this room belongs to the higher room next to it.
+          for (const { pts } of polys) faces.push({ kind: 'facade', pts, holes: [], normal: { x: w.inward.x, y: w.inward.y, z: 0 }, decals: [], level: li, layer: 1, finish: clad(nb.room) });
         }
       }
     }
@@ -465,11 +489,13 @@ export function exteriorFaces(levels: Level[]): Face[] {
         roof.ridge === 'x' ? { x: v + offset.x, y: c + offset.y, z: z + lv.base } : { x: c + offset.x, y: v + offset.y, z: z + lv.base };
       const shift = (p: P3): P3 => ({ x: p.x + offset.x, y: p.y + offset.y, z: p.z + lv.base });
       const planeFaces: Face[] = [];
+      const covering = look?.roofs[roof.key]?.covering ?? null;
+      const dormerClad = look?.roofs[roof.key]?.dormer ?? null;
       for (let i = 0; i + 1 < e.length; i++) {
         const pts = [at(e[i].c, roof.from, e[i].z), at(e[i + 1].c, roof.from, e[i + 1].z), at(e[i + 1].c, roof.to, e[i + 1].z), at(e[i].c, roof.to, e[i].z)];
         const normal = faceNormal(pts);
         const up = normal.z < 0 ? { x: -normal.x, y: -normal.y, z: -normal.z } : normal;
-        const face: Face = { kind: 'roof', pts, holes: [], normal: up, decals: [], level: li, layer: 2 };
+        const face: Face = { kind: 'roof', pts, holes: [], normal: up, decals: [], level: li, layer: 2, finish: covering };
         planeFaces.push(face);
         faces.push(face);
       }
@@ -480,12 +506,12 @@ export function exteriorFaces(levels: Level[]): Face[] {
         const host = planeFaces[d.plane];
         const facing = { x: d.facing.x, y: d.facing.y, z: 0 };
         const along = roof.ridge === 'x' ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
-        const front: Face = { kind: 'dormer', pts: d.front.map(shift), holes: [], normal: facing, decals: [], level: li, layer: 2, host };
-        if (d.window) front.decals.push({ pts: d.window.map(shift), kind: 'glass', name: d.name });
+        const front: Face = { kind: 'dormer', pts: d.front.map(shift), holes: [], normal: facing, decals: [], level: li, layer: 2, host, finish: dormerClad };
+        if (d.window) front.decals.push({ pts: d.window.map(shift), kind: 'glass', name: d.name, ...(frame ? { frame } : {}) });
         faces.push(
           front,
-          { kind: 'dormer', pts: d.cheeks[0].map(shift), holes: [], normal: { x: -along.x, y: -along.y, z: 0 }, decals: [], level: li, layer: 2, host },
-          { kind: 'dormer', pts: d.cheeks[1].map(shift), holes: [], normal: along, decals: [], level: li, layer: 2, host },
+          { kind: 'dormer', pts: d.cheeks[0].map(shift), holes: [], normal: { x: -along.x, y: -along.y, z: 0 }, decals: [], level: li, layer: 2, host, finish: dormerClad },
+          { kind: 'dormer', pts: d.cheeks[1].map(shift), holes: [], normal: along, decals: [], level: li, layer: 2, host, finish: dormerClad },
           { kind: 'flat', pts: d.top.map(shift), holes: [], normal: { x: 0, y: 0, z: 1 }, decals: [], level: li, layer: 2, host },
         );
       }
@@ -498,6 +524,8 @@ export function exteriorFaces(levels: Level[]): Face[] {
     for (const o of lv.plan.openings.filter((x) => x.exterior)) {
       const d = openingDecal(o, lv.base, lv.offset, lv.plan.outerWall);
       if (!d) continue;
+      const frame = lv.look?.frame ?? levels.find((l) => l.id === lv.below)?.look?.frame;
+      if (frame) d.frame = frame;
       const turned = (f: Face) => Math.abs(f.normal.x + o.inward.x) < 0.02 && Math.abs(f.normal.y + o.inward.y) < 0.02;
       const spans = (f: Face) => {
         const zs = f.pts.map((p) => p.z);
@@ -643,7 +671,8 @@ export interface Camera {
 }
 
 export interface Projected {
-  kind: FaceKind | Decal['kind'];
+  /** 'frame': the frame around a window or door, drawn under the glass or the door leaf. */
+  kind: FaceKind | Decal['kind'] | 'frame';
   /** Screen coordinates in metres (x right, y up). */
   rings: Point[][];
   /** 0..1, how much the face is turned towards the light. */
@@ -653,6 +682,12 @@ export interface Projected {
   frontal?: boolean;
   /** Index of the floor in the stack. */
   level: number;
+  /** Own colour (hex) instead of the default for the kind. */
+  colour?: string;
+  /** Pattern of the material (brick courses, boards, tile rows), screen coordinates. */
+  lines?: [Point, Point][];
+  /** The glass or leaf inside a frame: not an extra edge for dimensions. */
+  inner?: boolean;
 }
 
 const DEG = Math.PI / 180;
@@ -682,8 +717,14 @@ const LIGHT = (() => {
   return { x: v.x / l, y: v.y / l, z: v.z / l };
 })();
 
-/** Visible faces in drawing order, projected to the screen. */
-export function project(faces: Face[], cam: Camera): Projected[] {
+/** Frame width around windows and doors, m. */
+const FRAME = 0.06;
+
+/**
+ * Visible faces in drawing order, projected to the screen. `light`: material patterns without
+ * their fine joints (a 3D view that is redrawn while turning).
+ */
+export function project(faces: Face[], cam: Camera, opts: { light?: boolean } = {}): Projected[] {
   const view = viewDirection(cam);
   const proj = projector(cam);
   const visible = faces.filter((f) => f.normal.x * view.x + f.normal.y * view.y + f.normal.z * view.z > 1e-6);
@@ -697,9 +738,29 @@ export function project(faces: Face[], cam: Camera): Projected[] {
   for (const { f } of sorted) {
     const light = Math.max(0, f.normal.x * LIGHT.x + f.normal.y * LIGHT.y + f.normal.z * LIGHT.z);
     const facing = f.normal.x * view.x + f.normal.y * view.y + f.normal.z * view.z;
-    out.push({ kind: f.kind, rings: [f.pts, ...f.holes].map((r) => r.map((p) => ({ x: proj(p).x, y: proj(p).y }))), light, level: f.level });
+    const to2 = (p: P3) => {
+      const q = proj(p);
+      return { x: q.x, y: q.y };
+    };
+    const face: Projected = { kind: f.kind, rings: [f.pts, ...f.holes].map((r) => r.map(to2)), light, level: f.level };
+    if (f.finish) {
+      face.colour = f.finish.colour;
+      const segs = finishSegments(f, f.finish.type, opts.light);
+      if (segs.length) face.lines = segs.map(([a, b]) => [to2(a), to2(b)]);
+    }
+    out.push(face);
     for (const d of f.decals) {
-      out.push({ kind: d.kind, rings: [d.pts.map((p) => ({ x: proj(p).x, y: proj(p).y }))], light, name: d.name, frontal: facing > 0.999, level: f.level });
+      const frontal = facing > 0.999;
+      // A frame of its own colour around the glass or the door leaf (no frame under a door or a roller door).
+      const inset = d.kind === 'glass' ? [FRAME, FRAME, FRAME, FRAME] : [0, FRAME, FRAME, FRAME];
+      const size = Math.min(...d.pts.map((p, i) => Math.hypot(p.x - d.pts[(i + 1) % 4].x, p.y - d.pts[(i + 1) % 4].y, p.z - d.pts[(i + 1) % 4].z)));
+      if (d.frame && d.kind !== 'roldeur' && d.pts.length === 4 && size > 4 * FRAME) {
+        out.push({ kind: 'frame', rings: [d.pts.map(to2)], light, frontal, level: f.level, colour: d.frame });
+        const inner = insetQuad(d.pts, inset);
+        out.push({ kind: d.kind, rings: [inner.map(to2)], light, name: d.name, frontal, inner: true, level: f.level, ...(d.kind === 'door' ? { colour: d.frame } : {}) });
+        continue;
+      }
+      out.push({ kind: d.kind, rings: [d.pts.map(to2)], light, name: d.name, frontal, level: f.level });
     }
   }
   return out;

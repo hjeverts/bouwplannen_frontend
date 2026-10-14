@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { cutawayFaces, exteriorFaces, faceNormal, project, stackLevels, viewDirection } from '../geometry/building';
 import { buildFloorPlan, PlanRoomInput } from '../geometry/floorplan';
 import { roofSection } from '../geometry/geometry';
-import { computeBuilding, computePlattegrond, planContext, voidsFromAbove } from '../model/compute-plan';
+import { computeBuilding, computePlattegrond, lookOf, planContext, voidsFromAbove } from '../model/compute-plan';
 import { exampleHouse } from '../model/examples';
 import { PlattegrondItem } from '../model/models';
 import { projectToCsv } from '../model/export';
-import { cutawayView, elevationView, exteriorView, planView } from './house-views';
+import { cutawayView, elevationView, exteriorView, materialNotes, planView } from './house-views';
 import { overviewSheet, singleSheet } from './sheet';
 import { fit, fitStandard, measure, renderFitted, renderPrims, View } from './vector';
 
@@ -874,5 +874,119 @@ describe('gable of an attic under a roof without wall plate', () => {
     }
     expect(gables.find((g) => g.normal.x < 0)!.decals.length).toBe(1);
     expect(gables.find((g) => g.normal.x > 0)!.decals.length).toBe(0);
+  });
+});
+
+describe('cladding, frame colour and roof covering', () => {
+  /** The example house in brick, a black-boarded extension, anthracite frames and tiles, a white dormer. */
+  const dressed = () => {
+    const items = exampleHouse().items.map((i) => {
+      if (i.kind !== 'plattegrond') return i;
+      const p = i as PlattegrondItem;
+      return {
+        ...p,
+        cladding: { type: 'metselwerk', colour: '' },
+        frameColour: '#383E42',
+        rooms: p.rooms.map((r, k) => (p.id === 'vw-bg' && k === 3 ? { ...r, cladding: { type: 'rabat', colour: '' } } : r)),
+        roofs: (p.roofs ?? []).map((r) => ({ ...r, covering: { type: 'pannen', colour: '#3d4043' }, dormerCladding: { type: 'rabat', colour: '#f4f4ef' } })),
+      };
+    });
+    return { items, levels: computeBuilding(items[0] as PlattegrondItem, items) };
+  };
+
+  it('has no look until something is chosen', () => {
+    const ground = house.items.find((i) => i.id === 'vw-bg') as PlattegrondItem;
+    expect(lookOf(ground)).toBeNull();
+    expect(lookOf({ ...ground, cladding: { type: '', colour: '#ff0000' }, frameColour: 'rood' })).toBeNull();
+    const look = lookOf({ ...ground, frameColour: '#383E42' })!;
+    expect(look.frame).toBe('#383e42');
+    expect(look.cladding).toBeNull();
+  });
+
+  it('keeps the plain look without choices', () => {
+    const levels = computeBuilding(house.items[0] as PlattegrondItem, house.items);
+    const faces = exteriorFaces(levels);
+    expect(faces.some((f) => f.finish)).toBe(false);
+    const proj = project(faces, { azimuth: 0, elevation: 0 });
+    expect(proj.some((f) => f.colour || f.lines || f.kind === 'frame')).toBe(false);
+  });
+
+  it('clads each room as chosen, its own choice first', () => {
+    const { items, levels } = dressed();
+    const ground = items.find((i) => i.id === 'vw-bg') as PlattegrondItem;
+    const extension = ground.rooms[3].roomId;
+    const lv = levels.find((l) => l.id === 'vw-bg')!;
+    const room = lv.plan.rooms.find((r) => r.id === extension)!;
+    const facades = exteriorFaces(levels).filter((f) => f.kind === 'facade' && f.level === levels.indexOf(lv));
+    expect(facades.every((f) => f.finish)).toBe(true);
+    const boarded = facades.filter((f) => f.finish!.type === 'rabat');
+    expect(boarded.length).toBeGreaterThan(0);
+    // The boarded walls are those of the extension: every corner on (or just outside) its outline.
+    const grownExt = room.points;
+    const ys = grownExt.map((p) => p.y);
+    for (const f of boarded) for (const p of f.pts) expect(p.y - lv.offset.y).toBeGreaterThanOrEqual(Math.min(...ys) - 0.31);
+    expect(facades.filter((f) => f.finish!.type === 'metselwerk').length).toBeGreaterThan(0);
+  });
+
+  it('covers roofs and dormers, and frames the windows and doors', () => {
+    const { levels } = dressed();
+    const faces = exteriorFaces(levels);
+    const roofs = faces.filter((f) => f.kind === 'roof');
+    expect(roofs.length).toBeGreaterThan(0);
+    for (const r of roofs) expect(r.finish).toEqual({ type: 'pannen', colour: '#3d4043' });
+    const dormers = faces.filter((f) => f.kind === 'dormer');
+    expect(dormers.length).toBe(3);
+    for (const d of dormers) expect(d.finish).toEqual({ type: 'rabat', colour: '#f4f4ef' });
+    const decals = faces.flatMap((f) => f.decals);
+    const facadeDecals = faces.filter((f) => f.kind !== 'roof').flatMap((f) => f.decals);
+    expect(facadeDecals.length).toBeGreaterThan(5);
+    for (const d of facadeDecals) expect(d.frame).toBe('#383e42');
+    // Roof windows keep their own (grey) frame.
+    for (const d of faces.filter((f) => f.kind === 'roof').flatMap((f) => f.decals)) expect(d.frame).toBeUndefined();
+    expect(decals.length).toBeGreaterThan(facadeDecals.length);
+  });
+
+  it('draws frames under the glass, without changing the dimensions', () => {
+    const plain = elevationView(computeBuilding(house.items[0] as PlattegrondItem, house.items), 'voor');
+    const { levels } = dressed();
+    const view = elevationView(levels, 'voor');
+    const dims = (v: View) => v.prims.filter((p) => p.t === 'dim').map((p) => (p as { text: string }).text);
+    expect(dims(view)).toEqual(dims(plain));
+    const proj = project(exteriorFaces(levels), { azimuth: 0, elevation: 0 });
+    const frames = proj.filter((f) => f.kind === 'frame');
+    expect(frames.length).toBeGreaterThan(0);
+    // Each frame is followed by the glass or door leaf inside it.
+    for (const f of frames) {
+      const next = proj[proj.indexOf(f) + 1];
+      expect(next.inner).toBe(true);
+      const xs = (g: typeof f) => g.rings[0].map((p) => p.x);
+      expect(Math.min(...xs(next))).toBeGreaterThan(Math.min(...xs(f)));
+      expect(Math.max(...xs(next))).toBeLessThan(Math.max(...xs(f)));
+    }
+    // A door leaf in the frame colour.
+    expect(proj.some((f) => f.kind === 'door' && f.colour === '#383e42')).toBe(true);
+  });
+
+  it('renders the patterns and names the materials on the elevation', () => {
+    const { levels } = dressed();
+    expect(materialNotes(levels)).toEqual([
+      'Gevel: Metselwerk, rood / Rabatdelen horizontaal, zwart',
+      'Kozijnen: antraciet',
+      'Dak: Dakpannen, antraciet',
+      'Dakkapel: Rabatdelen horizontaal, wit',
+    ]);
+    const view = elevationView(levels, 'voor');
+    expect(view.prims.filter((p) => p.t === 'segs').length).toBeGreaterThan(0);
+    const texts = view.prims.filter((p) => p.t === 'text').map((p) => (p as { text: string }).text);
+    expect(texts).toContain('Kozijnen: antraciet');
+    const svg = renderFitted(view, 800, 600);
+    expect(svg).toContain('class="bp-pattern"');
+    expect(svg).toMatch(/style="fill:rgb\(/);
+    // A light drawing leaves out the head joints.
+    const full = project(exteriorFaces(levels), { azimuth: -35, elevation: 25 });
+    const light = project(exteriorFaces(levels), { azimuth: -35, elevation: 25 }, { light: true });
+    const count = (ps: typeof full) => ps.reduce((n, f) => n + (f.lines?.length ?? 0), 0);
+    expect(count(light)).toBeLessThan(count(full) / 3);
+    expect(materialNotes(computeBuilding(house.items[0] as PlattegrondItem, house.items))).toEqual([]);
   });
 });

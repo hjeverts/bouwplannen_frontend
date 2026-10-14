@@ -87,8 +87,14 @@ import { ResultRow, Results } from '../ui/results';
         <button type="button" role="radio" [attr.aria-checked]="heightMode() === 'per-hoek'" (click)="setHeightMode('per-hoek')">
           Hoogte per hoekpunt
         </button>
+        <button type="button" role="radio" [attr.aria-checked]="heightMode() === 'kap'" (click)="setHeightMode('kap')">Volgt de kap</button>
       </div>
-      @if (heightMode() === 'gelijk') {
+      @if (heightMode() === 'kap') {
+        <p class="hint room-hint">
+          Voor een zolder: de wanden gaan tot onder het dak (knieschot langs de goot, driehoek in de gevel). Leg de ruimte in een plattegrond onder een
+          kap; daar staan hoogtes, inhoud en wandoppervlak. Ramen in de gevel zet je hier op de gevelwand, borstwering vanaf de zoldervloer.
+        </p>
+      } @else if (heightMode() === 'gelijk') {
         <div class="fields fields--4 room-fields">
           <app-measure-field tag="h" label="Wandhoogte" [value]="item().height" (valueChange)="setField('height', $event)" />
         </div>
@@ -257,7 +263,7 @@ export class VormEditor {
     return o.status === 'ok' ? null : o.message;
   });
   protected readonly roomOpen = computed(
-    () => !!this.item().height || this.heightMode() === 'per-hoek' || this.item().openings.length > 0,
+    () => !!this.item().height || this.heightMode() !== 'gelijk' || this.item().openings.length > 0,
   );
   /** Corners 3..n can fall on either side of the previous diagonal. */
   protected readonly flipCorners = computed(() => Array.from({ length: this.n() - 2 }, (_, i) => i + 2));
@@ -351,7 +357,7 @@ export class VormEditor {
     this.changed.emit({ ...this.item(), method });
   }
 
-  protected setHeightMode(heightMode: 'gelijk' | 'per-hoek'): void {
+  protected setHeightMode(heightMode: 'gelijk' | 'per-hoek' | 'kap'): void {
     const item = resizeVorm(this.item(), this.n());
     // Switching to per-corner: start from the single height so nothing has to be typed twice.
     const heights = heightMode === 'per-hoek' && item.height && (item.heights ?? []).every((h) => !h) ? item.heights!.map(() => item.height) : item.heights;

@@ -59,7 +59,7 @@ interface RoomRef {
               [value]="e.plateHeight"
               (valueChange)="patch(i, { plateHeight: $event })"
               [placeholder]="platePlaceholder(i)"
-              hint="Vanaf deze vloer; leeg = hoogste ruimte eronder"
+              hint="Vanaf deze vloer; leeg = hoogste ruimte, bij een zolder 0"
             />
           </div>
         }

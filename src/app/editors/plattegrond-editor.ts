@@ -331,6 +331,8 @@ export class PlattegrondEditor {
     const rows: ResultRow[] = [{ label: open ? 'Vloeroppervlak' : 'Netto vloeroppervlak', value: formatArea(p.netArea), main: true }];
     if (!open) rows.push({ label: 'Bruto (buitenwerks)', value: formatArea(p.grossArea) });
     if (p.voidArea > 0) rows.push({ label: 'Waarvan trapgat', value: formatArea(p.voidArea) }, { label: 'Vloer zonder trapgat', value: formatArea(p.netArea - p.voidArea) });
+    const attic = p.rooms.filter((x) => x.followsRoof);
+    if (attic.length) rows.push({ label: 'Vloer hoger dan 1,50 m', value: formatArea(attic.reduce((s, x) => s + (x.usableArea ?? 0), 0) + p.rooms.filter((x) => !x.followsRoof).reduce((s, x) => s + x.area, 0)) });
     if (p.volume !== null) rows.push({ label: 'Inhoud ruimtes', value: formatVolume(p.volume) });
     if (!open || p.partitionLength > 0) rows.push({ label: 'Binnenmuren', value: formatLength(p.partitionLength, 2) });
     const dim = (label: string, c: typeof p.width) => {

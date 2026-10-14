@@ -5,7 +5,7 @@
  */
 import { MultiPolygon, Polygon as ClipPolygon, Ring } from 'polygon-clipping';
 import { difference, intersection } from './clip';
-import { FloorPlan, grow, PlanOpening, pointInPolygon, signedArea } from './floorplan';
+import { FloorPlan, grow, PlanOpening, pointInPolygon, signedArea, wallTopAt } from './floorplan';
 import { Point } from './geometry';
 
 export interface LevelInput {
@@ -517,8 +517,10 @@ export function cutawayFaces(level: Level, cut: number): Face[] {
       layer: 0,
     });
     for (const w of r.walls) {
-      const top = (t: number) => Math.min(cut, w.heightFrom + ((w.heightTo - w.heightFrom) * t) / (w.length || 1));
+      const top = (t: number) => Math.min(cut, wallTopAt(w, t));
       const at = (t: number, z: number) => p3({ x: w.from.x + w.dir.x * t, y: w.from.y + w.dir.y * t }, z, o);
+      // Top edge from the far end back to the start, through the bends of a wall that follows the roof.
+      const topEdge = [...(w.top ?? [{ s: 0 }, { s: w.length }]).map((q) => q.s)].sort((a, b) => b - a).map((t) => at(t, top(t)));
       const holes: P3[][] = [];
       for (const op of w.openings) {
         const hi = Math.min(op.sill + op.height, cut);
@@ -530,7 +532,7 @@ export function cutawayFaces(level: Level, cut: number): Face[] {
       }
       faces.push({
         kind: 'inner',
-        pts: [at(0, 0), at(w.length, 0), at(w.length, top(w.length)), at(0, top(0))],
+        pts: [at(0, 0), at(w.length, 0), ...topEdge],
         holes,
         normal: { x: w.inward.x, y: w.inward.y, z: 0 },
         decals: [],
@@ -543,7 +545,7 @@ export function cutawayFaces(level: Level, cut: number): Face[] {
         const sh = (q: P3): P3 => ({ x: q.x - w.inward.x * free.thickness, y: q.y - w.inward.y * free.thickness, z: q.z });
         faces.push({
           kind: 'inner',
-          pts: [at(w.length, 0), at(0, 0), at(0, top(0)), at(w.length, top(w.length))].map(sh),
+          pts: [at(w.length, 0), at(0, 0), ...[...topEdge].reverse()].map(sh),
           holes: holes.map((h) => h.map(sh)),
           normal: { x: -w.inward.x, y: -w.inward.y, z: 0 },
           decals: [],
@@ -553,6 +555,8 @@ export function cutawayFaces(level: Level, cut: number): Face[] {
       }
     }
   }
+  // An attic is shown uncut, walls up to the roof: no outside walls and no cut tops.
+  if (!Number.isFinite(cut)) return faces.filter((f) => f.pts.length >= 3);
   for (const poly of plan.footprint) {
     poly.forEach((ring0, ri) => {
       const ring = ringCcw(ring0, ri === 0);

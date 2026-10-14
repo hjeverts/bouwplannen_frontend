@@ -132,7 +132,11 @@ export function summarize(item: Item, items: Item[] = []): [string, string][] {
       if (plan.depth.diff !== null) out.push(['Verschil met gemeten diepte', formatMm(plan.depth.diff)]);
       if (plan.volume !== null) out.push(['Inhoud ruimtes', formatVolume(plan.volume)]);
       out.push(['Lengte binnenmuren', formatLength(plan.partitionLength)]);
-      for (const room of plan.rooms) out.push([`${room.name} vloer`, formatArea(room.area)], [`${room.name} wand netto`, formatArea(room.netWallArea)]);
+      for (const room of plan.rooms) {
+        out.push([`${room.name} vloer`, formatArea(room.area)], [`${room.name} wand netto`, formatArea(room.netWallArea)]);
+        if (room.followsRoof && room.usableArea !== null) out.push([`${room.name} vloer ≥ 1,50 m`, formatArea(room.usableArea)]);
+        if (room.followsRoof && room.volume !== null) out.push([`${room.name} inhoud`, formatVolume(room.volume)]);
+      }
       if (plan.roof) out.push(['Nokhoogte boven vloer', formatLength(plan.roof.ridgeHeight)]);
       return out;
     }

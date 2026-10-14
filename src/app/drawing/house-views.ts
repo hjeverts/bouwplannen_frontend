@@ -186,6 +186,26 @@ export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
     }
     prims.push({ t: 'text', at: r.centroid, text: r.name, cls: 'label', size: 2.8, dy: 1.8 });
     prims.push({ t: 'text', at: r.centroid, text: formatArea(r.area), cls: 'label-sub', size: 2.3, dy: -1.8 });
+    if (r.followsRoof && r.usableArea !== null) {
+      prims.push({ t: 'text', at: r.centroid, text: `≥ 1,5 m: ${formatArea(r.usableArea)}`, cls: 'label-sub', size: 2.1, dy: -4.8 });
+      // Where the attic is 1,50 m high: dashed line with its height.
+      const ri = plan.roomRoof[r.index];
+      const roof = ri === null || ri === undefined ? null : plan.roofs[ri];
+      if (roof) {
+        const prof = roof.profile;
+        for (let i = 0; i + 1 < prof.length; i++) {
+          const a = prof[i];
+          const b = prof[i + 1];
+          if ((a.z - 1.5) * (b.z - 1.5) >= 0) continue;
+          const c = a.c + ((1.5 - a.z) * (b.c - a.c)) / (b.z - a.z);
+          for (const [p0, p1] of lineInPolygon(c, roof.ridge, r.points)) {
+            prims.push({ t: 'line', pts: [p0, p1], cls: 'roof-line' });
+            const m = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+            prims.push({ t: 'text', at: m, text: '1500', cls: 'label-sub', size: 1.9, dy: 1.4, angle: roof.ridge === 'x' ? 0 : 90 });
+          }
+        }
+      }
+    }
     if (opts.roomDims !== false) {
       for (const w of r.walls) {
         if (w.length < 0.6) continue;
@@ -246,6 +266,27 @@ export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
   return { prims, title: opts.title, scalable: true };
 }
 
+/** Pieces of the line "across = c" (y = c for a ridge along x, x = c otherwise) inside a polygon. */
+function lineInPolygon(c: number, ridge: 'x' | 'y', poly: Point[]): [Point, Point][] {
+  const along: number[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    const pc = ridge === 'x' ? p.y : p.x;
+    const qc = ridge === 'x' ? q.y : q.x;
+    // Half-open rule: a corner exactly on the line is counted once.
+    if (pc < c === qc < c) continue;
+    const t = (c - pc) / (qc - pc);
+    along.push(ridge === 'x' ? p.x + (q.x - p.x) * t : p.y + (q.y - p.y) * t);
+  }
+  along.sort((a, b) => a - b);
+  const out: [Point, Point][] = [];
+  for (let i = 0; i + 1 < along.length; i += 2) {
+    out.push(ridge === 'x' ? [{ x: along[i], y: c }, { x: along[i + 1], y: c }] : [{ x: c, y: along[i] }, { x: c, y: along[i + 1] }]);
+  }
+  return out;
+}
+
 function centre(points: Point[]): Point {
   return { x: points.reduce((s, p) => s + p.x, 0) / points.length, y: points.reduce((s, p) => s + p.y, 0) / points.length };
 }
@@ -286,6 +327,8 @@ export function cutawayView(level: Level, cam: Camera, title?: string, host?: Le
     return { x: p.x * Math.cos(az) - p.y * Math.sin(az), y: z * Math.cos(el) + y1 * Math.sin(el) };
   };
   const cutOf = (lv: Level) => {
+    // An attic: walls up to the roof, not cut.
+    if (lv.plan.rooms.some((r) => r.followsRoof)) return Infinity;
     const minHeight = Math.min(...lv.plan.rooms.flatMap((r) => r.heights));
     return Math.max(0.5, Math.min(Number.isFinite(minHeight) ? minHeight : 2.4, 2.6));
   };

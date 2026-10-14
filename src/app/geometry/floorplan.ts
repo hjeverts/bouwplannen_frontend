@@ -10,7 +10,7 @@
  * plan, at small y). After placing, everything is shifted so the outside of the building starts at (0, 0).
  */
 import { MultiPolygon, Polygon as ClipPolygon, Ring } from 'polygon-clipping';
-import { difference, union as unionAll } from './clip';
+import { difference, intersection, union as unionAll } from './clip';
 import { GeometryError, Point } from './geometry';
 import { placeRoof, PlacedRoof, PlanRoofInput } from './roofs';
 
@@ -79,6 +79,8 @@ export interface PlanRoomInput {
   mirror: boolean;
   /** How the room is placed; null for the starting room. */
   link: PlanLinkInput | null;
+  /** The walls go up to the roof it lies under (attic): heights, volume and wall area follow from the roof. */
+  followRoof?: boolean;
 }
 
 
@@ -158,6 +160,11 @@ export interface PlacedWall {
   heightTo: number;
   neighbours: Neighbour[];
   openings: WallOpening[];
+  /**
+   * Top of the wall when it follows a roof: points along the wall (s from its first corner) where the
+   * height changes slope, from 0 to its length. Absent: a straight line between the corner heights.
+   */
+  top?: { s: number; z: number }[];
 }
 
 export interface PlacedRoom {
@@ -176,6 +183,10 @@ export interface PlacedRoom {
   netWallArea: number;
   /** Room this one lies inside (index), or null. */
   host: number | null;
+  /** The walls follow the roof (attic): heights, volume and wall area come from the roof. */
+  followsRoof: boolean;
+  /** Floor area where the room is at least 1,50 m high (attic rooms only). */
+  usableArea: number | null;
   /** Floor of the room as drawn: its outline minus rooms inside it with their walls (even-odd rings). */
   floor: Point[][];
 }
@@ -525,6 +536,8 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
       shiftCorner: shiftCorner.get(r.id) ?? null,
       netWallArea: 0,
       host: null,
+      followsRoof: false,
+      usableArea: null,
       floor: [points],
     };
   });
@@ -745,6 +758,19 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
   // A room inside another is under the same roof.
   for (const r of rooms) if (r.host !== null && roomRoof[r.index] === null) roomRoof[r.index] = roomRoof[r.host];
 
+  // 9. Attic rooms: walls up to the roof.
+  placedInputs.forEach((input, ri) => {
+    if (!input.followRoof) return;
+    const r = rooms[ri];
+    const rr = roomRoof[ri];
+    if (rr === null) {
+      warnings.push(`${r.name} volgt de kap, maar ligt niet onder een kap. Voor de tekening is 2,600 m aangenomen.`);
+      return;
+    }
+    followRoof(r, roofs[rr], warnings);
+  });
+  const roomVolume = rooms.every((r) => r.volume !== null) ? rooms.reduce((s, r) => s + (r.volume ?? 0), 0) : null;
+
   return {
     rooms,
     unplaced,
@@ -758,7 +784,7 @@ export function buildFloorPlan(input: PlanInput): FloorPlan {
     depth,
     netArea,
     grossArea,
-    volume,
+    volume: roomVolume ?? volume,
     partitionLength,
     voids,
     voidArea,
@@ -807,6 +833,119 @@ function polygonCentroid(points: Point[]): Point | null {
     cy += (p.y + q.y) * f;
   }
   return { x: cx / (6 * a), y: cy / (6 * a) };
+}
+
+/** Height of a wall at distance s along it, following its top polyline or the corner heights. */
+export function wallTopAt(w: Pick<PlacedWall, 'top' | 'length' | 'heightFrom' | 'heightTo'>, s: number): number {
+  if (w.top && w.top.length >= 2) {
+    const t = w.top;
+    if (s <= t[0].s) return t[0].z;
+    for (let i = 1; i < t.length; i++) {
+      if (s <= t[i].s) return t[i - 1].z + ((t[i].z - t[i - 1].z) * (s - t[i - 1].s)) / (t[i].s - t[i - 1].s || 1);
+    }
+    return t[t.length - 1].z;
+  }
+  const f = w.length > 0 ? Math.min(1, Math.max(0, s / w.length)) : 0;
+  return w.heightFrom + (w.heightTo - w.heightFrom) * f;
+}
+
+/** Lowest height of a wall between s0 and s1 (checks the bends in between). */
+function lowestTop(w: PlacedWall, s0: number, s1: number): number {
+  const ss = [s0, s1, ...(w.top ?? []).map((p) => p.s).filter((s) => s > s0 && s < s1)];
+  return Math.min(...ss.map((s) => wallTopAt(w, s)));
+}
+
+/**
+ * Give an attic room the heights of the roof above it: corner heights, a top polyline per wall
+ * (bending under the ridge and knees), wall area, volume and the floor area at least 1,50 m high.
+ */
+function followRoof(r: PlacedRoom, roof: PlacedRoof, warnings: string[]): void {
+  const across = (p: Point) => (roof.ridge === 'x' ? p.y : p.x);
+  const z = (c: number) => Math.max(0, roof.heightAt(c));
+  r.followsRoof = true;
+  r.heights = r.points.map((p) => z(across(p)));
+  const bends = roof.profile.map((p) => p.c);
+  let gross = 0;
+  let holes = 0;
+  for (const w of r.walls) {
+    const c0 = across(w.from);
+    const c1 = across(w.to);
+    const ss = new Set<number>([0, w.length]);
+    if (Math.abs(c1 - c0) > 1e-9) {
+      for (const c of bends) {
+        const t = (c - c0) / (c1 - c0);
+        if (t > 1e-9 && t < 1 - 1e-9) ss.add(t * w.length);
+      }
+    }
+    w.top = [...ss].sort((a, b) => a - b).map((s) => ({ s, z: z(c0 + ((c1 - c0) * s) / (w.length || 1)) }));
+    w.heightFrom = w.top[0].z;
+    w.heightTo = w.top[w.top.length - 1].z;
+    for (let i = 1; i < w.top.length; i++) gross += ((w.top[i].s - w.top[i - 1].s) * (w.top[i].z + w.top[i - 1].z)) / 2;
+    for (const o of w.openings) {
+      holes += o.width * o.height;
+      if (!o.own) continue;
+      const room = lowestTop(w, Math.max(0, o.offset), Math.min(w.length, o.offset + o.width));
+      if (o.sill + o.height > room + MM) {
+        warnings.push(
+          `${o.name || 'Een opening'} in ${r.name} past niet onder de kap: bovenkant ${fmt(o.sill + o.height)}, de wand is daar ${fmt(room)} hoog.`,
+        );
+      }
+    }
+  }
+  r.netWallArea = Math.max(0, gross - holes);
+
+  // Volume and usable area: per strip between the bends of the roof the height is linear in c,
+  // so the integral over a strip is its area times the height at its centroid.
+  const floor = evenOddPolygons(r.floor.length ? r.floor : [r.points]);
+  const big = 1e4;
+  const strip = (a: number, b: number): ClipPolygon => {
+    const pts = roof.ridge === 'x' ? [{ x: -big, y: a }, { x: big, y: a }, { x: big, y: b }, { x: -big, y: b }] : [{ x: a, y: -big }, { x: b, y: -big }, { x: b, y: big }, { x: a, y: big }];
+    return [toRing(pts)];
+  };
+  const cuts = [-big, ...bends, big];
+  let volume = 0;
+  let usable = 0;
+  const areaAndCentre = (mp: MultiPolygon) => {
+    let area = 0;
+    let moment = 0;
+    for (const poly of mp) {
+      poly.forEach((ring, k) => {
+        const pts = fromRing(ring);
+        const a = Math.abs(signedArea(pts));
+        const c = polygonCentroid(pts);
+        if (!c) return;
+        const sign = k === 0 ? 1 : -1;
+        area += sign * a;
+        moment += sign * a * across(c);
+      });
+    }
+    return { area, centre: area > 1e-12 ? moment / area : 0 };
+  };
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const a = cuts[i];
+    const b = cuts[i + 1];
+    if (b - a < 1e-9) continue;
+    const part = intersection(floor, strip(a, b));
+    const { area, centre } = areaAndCentre(part);
+    if (area <= 1e-9) continue;
+    volume += area * z(centre);
+    // Where in this strip is it at least 1,50 m high? z is linear here.
+    const za = z(Math.max(a, -big / 2));
+    const zb = z(Math.min(b, big / 2));
+    let lo = a;
+    let hi = b;
+    if (za < 1.5 && zb < 1.5) continue;
+    if (za < 1.5 || zb < 1.5) {
+      const ca = Math.max(a, -big / 2);
+      const cb = Math.min(b, big / 2);
+      const cross = ca + ((1.5 - za) * (cb - ca)) / (zb - za);
+      if (za < 1.5) lo = cross;
+      else hi = cross;
+    }
+    usable += areaAndCentre(intersection(floor, strip(lo, hi))).area;
+  }
+  r.volume = volume;
+  r.usableArea = usable;
 }
 
 /** Length of segment p–q that lies inside the polygon. */

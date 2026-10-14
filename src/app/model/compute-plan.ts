@@ -51,7 +51,15 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
       const { shape, room } = r.value;
       let heights: number[];
       const openings: PlanOpeningInput[] = [];
-      if (room) {
+      const followRoof = vorm.heightMode === 'kap';
+      if (followRoof) {
+        // Heights come from the roof in the floor plan; until then a placeholder.
+        heights = shape.points.map(() => DEFAULT_HEIGHT);
+        for (const o of r.value.openings) {
+          if (o.wall === null) continue;
+          openings.push({ name: o.name, wall: o.wall, offset: o.offset ?? 0, width: o.width, height: o.height, sill: o.sill ?? 0, type: o.type, swing: o.swing, hinge: o.hinge });
+        }
+      } else if (room) {
         heights = room.walls.map((w) => w.heightFrom);
         for (const w of room.walls) {
           for (const o of w.openings) {
@@ -79,7 +87,7 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
                 distance: entry.inside ? lengthOr(entry.distance, `${label}: afstand uit de wand`, 0)! : 0,
               }
             : null;
-      rooms.push({ id: vorm.id, name: vorm.name, points: shape.points, heights, openings, volume: room?.volume ?? null, mirror: !!entry.mirror, link });
+      rooms.push({ id: vorm.id, name: vorm.name, points: shape.points, heights, openings, volume: followRoof ? null : (room?.volume ?? null), mirror: !!entry.mirror, link, followRoof });
     }
     if (rooms.length === 0) {
       return { status: 'incomplete', message: `Nog geen complete ruimte: ${incompleteRooms.map((r) => `${r.name} (${r.reason})`).join('; ')}` };
@@ -115,7 +123,9 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[]): Outcom
       let plateHeight = lengthOr(entry.plateHeight, `${name}: hoogte muurplaat`, null);
       let assumed = false;
       if (plateHeight === null) {
-        plateHeight = Math.max(...(covered.length ? covered : rooms).flatMap((x) => x.heights));
+        // Rooms whose walls follow the roof (an attic) have no height of their own: the plate is then on the floor.
+        const measured = (covered.length ? covered : rooms).filter((x) => !x.followRoof);
+        plateHeight = measured.length ? Math.max(...measured.flatMap((x) => x.heights)) : 0;
         assumed = true;
       }
       if (section.fromFloor) plateHeight = section.plateLeft;

@@ -623,3 +623,123 @@ describe('loft without walls and floor heights', () => {
     expect(loft.base).toBeCloseTo(2.4, 9);
   });
 });
+
+describe('attic: walls follow the roof', () => {
+  const attic = (openings: PlanRoomInput['openings']): PlanRoomInput => ({
+    id: 'z',
+    name: 'Zolder',
+    points: [
+      { x: 0, y: 0 },
+      { x: 8.2, y: 0 },
+      { x: 8.2, y: 7.4 },
+      { x: 0, y: 7.4 },
+    ],
+    heights: [2.6],
+    openings,
+    volume: null,
+    mirror: false,
+    link: null,
+    followRoof: true,
+  });
+  const section = roofSection({ type: 'zadeldak', span: 8, pitch: 45 });
+  const build = (openings: PlanRoomInput['openings']) =>
+    buildFloorPlan({
+      rooms: [attic(openings)],
+      outerWall: 0.3,
+      measuredWidth: null,
+      measuredDepth: null,
+      turn: 0,
+      roofs: [{ section, ridge: 'x', flip: false, plateHeight: 0, overhang: 0, gableOverhang: 0, length: null, name: 'Kap', dormers: [], windows: [] }],
+    });
+
+  it('takes its heights, volume and the floor at least 1,50 m high from the roof', () => {
+    const fp = build([]);
+    const r = fp.rooms[0];
+    expect(r.followsRoof).toBe(true);
+    // Inside face of the eaves wall is 0,3 m in from the plate: 0,3 m high at 45°.
+    expect(r.heights[0]).toBeCloseTo(0.3, 9);
+    // The gable wall (2–3) bends under the ridge at 4 m.
+    const gable = r.walls[1];
+    expect(gable.top!.map((p) => Math.round(p.z * 1000) / 1000)).toEqual([0.3, 4, 0.3]);
+    expect(r.volume).toBeCloseTo(8.2 * (16 - 0.09), 6);
+    expect(r.usableArea).toBeCloseTo(8.2 * 5, 6);
+    expect(fp.volume).toBeCloseTo(8.2 * (16 - 0.09), 6);
+    // Wall area: two gables (triangle-ish) and two eaves walls of 0,3 m.
+    const gableArea = 2 * (((0.3 + 4) / 2) * 3.7);
+    expect(r.netWallArea).toBeCloseTo(2 * gableArea + 2 * 8.2 * 0.3, 6);
+  });
+
+  it('puts a window high in the gable and warns when it does not fit under the slope', () => {
+    const ok = build([{ name: 'raam', wall: 1, offset: 3.2, width: 1, height: 1.2, sill: 0.8 }]);
+    expect(ok.warnings).toEqual([]);
+    const levels = stackLevels([{ id: 'z', name: 'Zolder', plan: ok, below: null, floorThickness: 0.3, dx: 0, dy: 0 }], 'z');
+    const decals = exteriorFaces(levels).flatMap((f) => f.decals);
+    expect(decals).toHaveLength(1);
+    expect(Math.max(...decals[0].pts.map((p) => p.z))).toBeCloseTo(2, 9);
+    const side = elevationView(levels, 'rechts');
+    expect(side.prims.some((p) => p.t === 'poly' && p.cls === 'f-glass')).toBe(true);
+    const low = build([{ name: 'raam', wall: 1, offset: 0.5, width: 1, height: 1.2, sill: 0.8 }]);
+    expect(low.warnings.some((w) => /raam in Zolder past niet onder de kap/.test(w))).toBe(true);
+    // The plan shows where it is 1,50 m high; the inside view shows the walls up to the roof.
+    const plan = planView(ok);
+    expect(plan.prims.filter((p) => p.t === 'text' && p.text === '1500')).toHaveLength(2);
+    const inner = cutawayFaces(levels[0], Infinity).filter((f) => f.kind === 'inner');
+    expect(Math.max(...inner.flatMap((f) => f.pts.map((p) => p.z)))).toBeCloseTo(4, 9);
+    expect(inner.reduce((n, f) => n + f.holes.length, 0)).toBe(1);
+  });
+});
+
+describe('attic through the model', () => {
+  it('uses the openings of a room without heights and puts the plate on the attic floor', () => {
+    const now = new Date().toISOString();
+    const items = [
+      {
+        id: 'zv',
+        kind: 'vorm',
+        name: 'Zolder',
+        notes: '',
+        updated: now,
+        method: 'hoeken',
+        sides: ['8,2', '7,4', '8,2', '7,4'],
+        diagonals: [''],
+        flips: [false, false, false, false],
+        angles: ['90', '90'],
+        height: '',
+        heightMode: 'kap',
+        heights: ['', '', '', ''],
+        openings: [{ name: 'raam', wall: '1', offset: '3,2', width: '1', height: '1,2', sill: '0,8' }],
+      },
+      { id: 'kap', kind: 'dak', name: 'Kap', notes: '', updated: now, roofType: 'zadeldak', span: '8', rise: '', pitch: '45', rafter: '', ridgeOffset: '', overhang: '', length: '' },
+      {
+        id: 'zp',
+        kind: 'plattegrond',
+        name: 'Zolder',
+        notes: '',
+        updated: now,
+        rooms: [{ roomId: 'zv' }],
+        outerWall: '0,3',
+        measuredWidth: '',
+        measuredDepth: '',
+        turn: 0,
+        roofId: 'kap',
+        ridge: 'x',
+        roofFlip: false,
+        plateHeight: '',
+        below: '',
+        floorThickness: '0,3',
+        shiftX: '',
+        shiftY: '',
+      },
+    ] as unknown as PlattegrondItem[];
+    const r = computePlattegrond(items[2], items);
+    if (r.status !== 'ok') throw new Error(r.message);
+    expect(r.value.plateHeight).toBe(0);
+    expect(r.value.assumedHeight).toEqual([]);
+    const room = r.value.plan.rooms[0];
+    expect(room.followsRoof).toBe(true);
+    expect(room.walls[1].openings).toHaveLength(1);
+    expect(r.value.plan.openings[0].exterior).toBe(true);
+    expect(r.value.plan.warnings).toEqual([]);
+    expect(projectToCsv({ id: 'p', name: 'p', created: now, updated: now, items } as never)).toContain('Zolder vloer ≥ 1,50 m;41,00 m²');
+  });
+});

@@ -83,6 +83,8 @@ export interface VormResult {
   /** Why there is no room result yet (incomplete heights) or what is wrong with it (error). */
   roomMessage: string | null;
   roomError: boolean;
+  /** Doors and windows as entered, also when there is no room result (no heights, or heights from the roof). */
+  openings: OpeningInput[];
 }
 
 export function computeVorm(item: VormItem): Outcome<VormResult> {
@@ -102,14 +104,52 @@ export function computeVorm(item: VormItem): Outcome<VormResult> {
       if (missing > 0) return incomplete(`Nog ${missing} waarde${missing === 1 ? '' : 'n'} in te vullen. De laatste zijde is een controlemaat en mag leeg blijven.`);
       shape = polygonFromAngles(sides, angles as number[]);
     }
-    return { status: 'ok', value: { shape, ...computeRoom(item, shape) } };
+    let openings: OpeningInput[] = [];
+    try {
+      openings = parseOpenings(item);
+    } catch {
+      // Reported by computeRoom as the room message.
+    }
+    return { status: 'ok', value: { shape, ...computeRoom(item, shape), openings } };
   });
+}
+
+/** Doors and windows that are filled in far enough to use. Throws InputError on an unreadable value. */
+function parseOpenings(item: VormItem): OpeningInput[] {
+  const openings: OpeningInput[] = [];
+  item.openings.forEach((o, i) => {
+    const label = o.name || `Opening ${i + 1}`;
+    const width = len(o.width, `${label}: breedte`);
+    const height = len(o.height, `${label}: hoogte`);
+    if (width === null || height === null) return; // not filled in yet
+    const wall = o.wall === undefined || o.wall === '' ? null : Number(o.wall);
+    openings.push({
+      name: o.name,
+      wall: wall !== null && Number.isInteger(wall) ? wall : null,
+      offset: len(o.offset ?? '', `${label}: afstand vanaf de hoek`),
+      width,
+      height,
+      sill: len(o.sill ?? '', `${label}: borstwering`),
+      type: o.type || null,
+      swing: o.swing || null,
+      hinge: o.hinge || null,
+    });
+  });
+  return openings;
 }
 
 /** Room part of a shape. Errors here do not hide the floor plan, so they are returned, not thrown. */
 function computeRoom(item: VormItem, shape: PolygonAnalysis): Pick<VormResult, 'room' | 'roomMessage' | 'roomError'> {
   try {
     let heights: number[];
+    if (item.heightMode === 'kap') {
+      parseOpenings(item); // report unreadable values here already
+      return {
+        room: null,
+        roomMessage: 'De wanden volgen de kap. Hoogtes, inhoud en wandoppervlak staan in de plattegrond waarin deze ruimte onder een kap ligt.',
+        roomError: false,
+      };
+    }
     if (item.heightMode === 'per-hoek') {
       const values = shape.points.map((_, i) => len(item.heights?.[i] ?? '', `Hoogte bij hoekpunt ${i + 1}`));
       const missing = values.filter((v) => v === null).length;
@@ -121,26 +161,7 @@ function computeRoom(item: VormItem, shape: PolygonAnalysis): Pick<VormResult, '
       if (h === null) return { room: null, roomMessage: null, roomError: false };
       heights = [h];
     }
-    const openings: OpeningInput[] = [];
-    item.openings.forEach((o, i) => {
-      const label = o.name || `Opening ${i + 1}`;
-      const width = len(o.width, `${label}: breedte`);
-      const height = len(o.height, `${label}: hoogte`);
-      if (width === null || height === null) return; // not filled in yet
-      const wall = o.wall === undefined || o.wall === '' ? null : Number(o.wall);
-      openings.push({
-        name: o.name,
-        wall: wall !== null && Number.isInteger(wall) ? wall : null,
-        offset: len(o.offset ?? '', `${label}: afstand vanaf de hoek`),
-        width,
-        height,
-        sill: len(o.sill ?? '', `${label}: borstwering`),
-        type: o.type || null,
-        swing: o.swing || null,
-        hinge: o.hinge || null,
-      });
-    });
-    return { room: analyzeRoom(shape, heights, openings), roomMessage: null, roomError: false };
+    return { room: analyzeRoom(shape, heights, parseOpenings(item)), roomMessage: null, roomError: false };
   } catch (e) {
     if (e instanceof GeometryError || e instanceof InputError) return { room: null, roomMessage: e.message, roomError: true };
     throw e;

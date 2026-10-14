@@ -65,7 +65,7 @@ export interface VormItem extends BaseItem {
   /** Wall height, for rooms. */
   height: string;
   /** 'gelijk': one height for the room; 'per-hoek': a height at every corner (sloped ceiling, ridge). */
-  heightMode?: 'gelijk' | 'per-hoek';
+  heightMode?: 'gelijk' | 'per-hoek' | 'kap';
   heights?: string[];
   openings: OpeningEntry[];
 }

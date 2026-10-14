@@ -1,7 +1,7 @@
 import { heightUnder, Level, LevelInput, stackLevels } from '../geometry/building';
 import { buildFloorPlan, FloorPlan, PlanOpeningInput, PlanRoofInput, PlanRoomInput, PlanVoidInput, roofSeenFrom } from '../geometry/floorplan';
 import { GeometryError, Point } from '../geometry/geometry';
-import { parseLength } from '../geometry/units';
+import { formatLength, parseLength } from '../geometry/units';
 import { computeDak, computeVorm, Outcome } from './compute';
 import { DakItem, Item, PlattegrondItem, roofEntries, VormItem } from './models';
 
@@ -215,6 +215,22 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[], seen: S
         plan = buildFloorPlan({ ...planInput, roofsAround: below.value.plan.roofs.map((r) => roofSeenFrom(r, shift, dz)) });
       }
     }
+    // Values that are almost certainly typing errors (49 instead of 0,49): say so instead of drawing a 50 m high house.
+    const odd = (text: string | undefined, label: string, max: number) => {
+      const v = parseLength(text ?? '');
+      if (v === null || Number.isNaN(v) || v <= max) return;
+      const guess = v >= 100 ? v / 1000 : v / 100;
+      plan.warnings.push(
+        `${label} is ${formatLength(v)}: dat lijkt een typfout. Bedoel je ${formatLength(guess)}? Een maat zonder eenheid is in meters; typ anders bijvoorbeeld "${String(v).replace('.', ',')} cm" of "${String(v).replace('.', ',')} mm".`,
+      );
+    };
+    if (item.below) {
+      odd(item.floorThickness, 'Vloerdikte', 1.5);
+      odd(item.floorHeight, 'Hoogte vloer', 15);
+    }
+    if (!item.open) odd(item.outerWall, 'Buitenmuur', 1.5);
+    odd(item.flatThickness, 'Dikte plat dak', 1.5);
+    for (const entry of item.rooms) odd(entry.thickness, `${vorms.get(entry.roomId)?.name ?? 'Ruimte'}: muurdikte`, 1.5);
     // Rooms without a height that are not under any roof: the drawing assumes a height.
     if (!item.open) for (const x of rooms) if (x.followRoof === 'auto' && !plan.rooms.find((pr) => pr.id === x.id)?.followsRoof) assumedHeight.push(x.name);
     const first = roofInfo.find((x) => !x.problem && x.plateHeight !== null) ?? null;

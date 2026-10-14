@@ -73,7 +73,7 @@ src/app/
 ```bash
 npm install --legacy-peer-deps   # npm 10 struikelt anders over een peer-dependency
 npm start                        # http://localhost:4200, /api gaat naar de backend op :5094
-npm test -- --watch=false        # Vitest, 165 tests
+npm test -- --watch=false        # Vitest, 166 tests
 npm run build                    # dist/bouwplannen-frontend/browser, statisch te hosten
 ```
 

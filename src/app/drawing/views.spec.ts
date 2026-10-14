@@ -835,3 +835,12 @@ describe('rooms without a height', () => {
     expect(flat.value.plan.warnings).toEqual([]);
   });
 });
+
+describe('typing errors', () => {
+  it('warns about a floor thickness of 49 m instead of drawing it', () => {
+    const items = exampleHouse().items.map((i) => (i.id === 'vw-1' ? { ...i, floorThickness: '49' } : i));
+    const r = computePlattegrond(items.find((i) => i.id === 'vw-1') as PlattegrondItem, items);
+    if (r.status !== 'ok') throw new Error(r.message);
+    expect(r.value.plan.warnings.some((w) => /Vloerdikte is 49,000 m: dat lijkt een typfout\. Bedoel je 0,490 m\?/.test(w))).toBe(true);
+  });
+});

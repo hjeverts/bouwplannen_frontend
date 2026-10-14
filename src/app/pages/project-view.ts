@@ -9,6 +9,7 @@ import { outlineOf, outlineToDxf, planToDxf, projectToCsv, summarize, toJson } f
 import { computePlattegrond } from '../model/compute-plan';
 import { Item, ItemKind, KIND_HINTS, KIND_LABELS } from '../model/models';
 import { ProjectStore } from '../model/project-store';
+import { LengthUnit } from '../geometry/units';
 import { GroupSelect } from '../account/group-select';
 import { AuthService } from '../api/auth.service';
 import { SyncService } from '../sync/sync.service';
@@ -26,6 +27,16 @@ import { safeFilename } from '../ui/transfer';
             <span class="field-label">Project</span>
             <input id="project-name" type="text" [value]="p.name" (change)="store.renameProject(p.id, $any($event.target).value)" />
           </label>
+
+          <div class="unit-pick">
+            <span class="field-label">Maten in</span>
+            <div class="segmented segmented--small" role="radiogroup" aria-label="Eenheid voor maten">
+              @for (u of units; track u) {
+                <button type="button" role="radio" [attr.aria-checked]="store.unit() === u" (click)="store.setProjectUnit(p.id, u)">{{ u }}</button>
+              }
+            </div>
+            <span class="field-note">Zonder eenheid getypt; oppervlakte en inhoud in m² en m³</span>
+          </div>
 
           @if (auth.loggedIn()) {
             <app-group-select label="Gedeeld in groep" [value]="p.groupId" (changed)="store.setProjectGroup(p.id, $event)" />
@@ -151,6 +162,7 @@ export class ProjectView {
   protected readonly hints = KIND_HINTS;
   protected readonly kinds: ItemKind[] = ['vorm', 'plattegrond', 'hoek', 'dak', 'driehoek', 'maten'];
   protected readonly confirmProject = signal(false);
+  protected readonly units: LengthUnit[] = ['m', 'cm', 'mm'];
   protected readonly confirmItem = signal<string | null>(null);
 
   protected keyResult(item: Item): string {

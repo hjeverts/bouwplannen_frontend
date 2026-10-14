@@ -1,5 +1,5 @@
 import { Component, computed, input, model } from '@angular/core';
-import { formatLength, parseAngle, parseLength } from '../geometry/units';
+import { formatLength, lengthInput, lengthUnit, parseAngle, parseLength, unitOf } from '../geometry/units';
 
 let nextId = 0;
 
@@ -21,11 +21,11 @@ let nextId = 0;
           type="text"
           inputmode="decimal"
           autocomplete="off"
-          [placeholder]="placeholder()"
+          [placeholder]="shownPlaceholder()"
           [value]="value()"
           (input)="value.set($any($event.target).value)"
         />
-        <span class="field-unit">{{ kind() === 'angle' ? '°' : 'm' }}</span>
+        <span class="field-unit">{{ kind() === 'angle' ? '°' : unit() }}</span>
       </span>
       <span class="field-note">{{ note() }}</span>
     </label>
@@ -40,6 +40,15 @@ export class MeasureField {
   readonly placeholder = input('');
   readonly hint = input('');
 
+  protected readonly unit = lengthUnit;
+
+  /** Placeholders are given in metres ("0,100"); show them in the project's unit. */
+  protected readonly shownPlaceholder = computed(() => {
+    const ph = this.placeholder();
+    if (this.kind() !== 'length' || !/^-?\d+(?:[.,]\d+)?$/.test(ph.trim())) return ph;
+    return lengthInput(Number(ph.trim().replace(',', '.')), this.unit());
+  });
+
   protected readonly fieldId = `mf-${++nextId}`;
 
   private readonly parsed = computed(() => (this.kind() === 'angle' ? parseAngle(this.value()) : parseLength(this.value())));
@@ -50,7 +59,9 @@ export class MeasureField {
     if (v === null) return this.hint();
     if (Number.isNaN(v)) return this.kind() === 'angle' ? 'Geen hoek' : 'Geen maat';
     const text = this.value().trim().toLowerCase();
-    if (this.kind() === 'length' && /(mm|cm)$/.test(text)) return '= ' + formatLength(v);
+    // Typed in another unit than the project's: show what it is in the project's unit.
+    const typed = this.kind() === 'length' ? unitOf(text) : null;
+    if (typed && typed !== this.unit()) return '= ' + formatLength(v);
     return this.hint();
   });
 }

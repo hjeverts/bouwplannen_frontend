@@ -1,6 +1,6 @@
 import { Component, computed, input, output } from '@angular/core';
 import { FloorPlan, PlacedRoof } from '../geometry/floorplan';
-import { formatLength } from '../geometry/units';
+import { formatLength, lengthInput } from '../geometry/units';
 import { computeDak } from '../model/compute';
 import { PlattegrondResult } from '../model/compute-plan';
 import { DakItem, DormerEntry, RoofEntry, RoofWindowEntry } from '../model/models';
@@ -177,7 +177,7 @@ export class RoofsPanel {
 
   protected platePlaceholder(i: number): string {
     const ri = this.info()?.roofInfo[i];
-    return ri?.assumed && ri.plateHeight !== null ? formatLength(ri.plateHeight).replace(' m', '') : '';
+    return ri?.assumed && ri.plateHeight !== null ? lengthInput(ri.plateHeight, 'm') : '';
   }
 
   private emit(entries: RoofEntry[]): void {

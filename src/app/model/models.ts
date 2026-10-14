@@ -237,7 +237,14 @@ export interface Project {
   updated: string;
   /** Group on the server whose members share this project. Empty: only on this device. */
   groupId?: string;
+  /** Project settings; absent in older projects. */
+  settings?: ProjectSettings;
   items: Item[];
+}
+
+export interface ProjectSettings {
+  /** Unit of lengths typed without a unit (default metres). Areas and volumes stay m² and m³. */
+  unit?: 'm' | 'cm' | 'mm';
 }
 
 export const KIND_LABELS: Record<ItemKind, string> = {

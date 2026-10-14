@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, output } from '@angular/core';
 import { HouseViewer } from '../drawing/house-viewer';
-import { formatArea, formatLength, formatMm, formatVolume } from '../geometry/units';
+import { formatArea, formatLength, formatMm, formatVolume, lengthInput } from '../geometry/units';
 import { computeDak, computeVorm } from '../model/compute';
 import { computeBuilding, computePlattegrond, possibleBelow } from '../model/compute-plan';
 import { DakItem, PlanRoomEntry, PlattegrondItem, RoofEntry, roofEntries, VoidEntry, VormItem } from '../model/models';
@@ -384,12 +384,12 @@ export class PlattegrondEditor {
     const levels = this.levels();
     const me = levels.find((l) => l.id === this.item().id);
     const below = levels.find((l) => l.id === this.item().below);
-    return me && below ? formatLength(me.base - below.base).replace(' m', '') : '';
+    return me && below ? lengthInput(me.base - below.base, 'm') : '';
   });
 
   protected readonly shiftPlaceholder = computed(() => {
     const below = this.levels().find((l) => l.id === this.item().below);
-    return below ? formatLength(below.plan.outerWall).replace(' m', '') : '';
+    return below ? lengthInput(below.plan.outerWall, 'm') : '';
   });
 
   protected readonly placedRooms = computed(() => this.vorms().filter((v) => this.item().rooms.some((r) => r.roomId === v.id)));

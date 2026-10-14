@@ -2,7 +2,7 @@ import { Component, computed, input, output, signal } from '@angular/core';
 import { Drawing, DrawingSpec, polygonSpec, Segment } from '../drawing/drawing';
 import { Room3d } from '../drawing/room3d';
 import { openingStyle, OpeningStyle } from '../geometry/floorplan';
-import { formatAngle, formatArea, formatLength, formatMm, formatVolume, parseLength } from '../geometry/units';
+import { formatAngle, formatArea, formatInUnit, formatLength, formatMm, formatVolume, parseLength } from '../geometry/units';
 import { computeVorm } from '../model/compute';
 import { OpeningEntry, resizeVorm, VormItem } from '../model/models';
 import { MeasureField } from '../ui/measure-field';
@@ -289,7 +289,7 @@ export class VormEditor {
   }
 
   protected heightText(a: number, b: number): string {
-    return Math.abs(a - b) < 0.0005 ? formatLength(a, 2) : `${formatLength(a, 2).replace(' m', '')}–${formatLength(b, 2)}`;
+    return Math.abs(a - b) < 0.0005 ? formatLength(a, 2) : `${formatInUnit(a, 2)}–${formatLength(b, 2)}`;
   }
 
   protected readonly rows = computed<ResultRow[]>(() => {
@@ -302,7 +302,7 @@ export class VormEditor {
       rows.push({ label: 'Wandoppervlak', value: formatArea(room.wallArea) });
       if (room.openingsArea > 0) rows.push({ label: 'Wand min openingen', value: formatArea(room.netWallArea) });
       if (room.sloped) {
-        rows.push({ label: 'Hoogte', value: `${formatLength(room.minHeight, 2).replace(' m', '')} tot ${formatLength(room.maxHeight, 2)}` });
+        rows.push({ label: 'Hoogte', value: `${formatInUnit(room.minHeight, 2)} tot ${formatLength(room.maxHeight, 2)}` });
         rows.push({ label: 'Plafond langs de helling', value: formatArea(room.ceilingArea) });
       }
     }

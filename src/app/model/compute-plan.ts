@@ -1,7 +1,7 @@
 import { heightUnder, Level, LevelInput, stackLevels } from '../geometry/building';
 import { buildFloorPlan, FloorPlan, PlanOpeningInput, PlanRoofInput, PlanRoomInput, PlanVoidInput, roofSeenFrom } from '../geometry/floorplan';
 import { GeometryError, Point } from '../geometry/geometry';
-import { formatLength, parseLength } from '../geometry/units';
+import { formatLength, lengthUnit, parseLength } from '../geometry/units';
 import { computeDak, computeVorm, Outcome } from './compute';
 import { DakItem, Item, PlattegrondItem, roofEntries, VormItem } from './models';
 
@@ -221,7 +221,7 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[], seen: S
       if (v === null || Number.isNaN(v) || v <= max) return;
       const guess = v >= 100 ? v / 1000 : v / 100;
       plan.warnings.push(
-        `${label} is ${formatLength(v)}: dat lijkt een typfout. Bedoel je ${formatLength(guess)}? Een maat zonder eenheid is in meters; typ anders bijvoorbeeld "${String(v).replace('.', ',')} cm" of "${String(v).replace('.', ',')} mm".`,
+        `${label} is ${formatLength(v)}: dat lijkt een typfout. Bedoel je ${formatLength(guess)}? Een maat zonder eenheid is in ${{ m: 'meters', cm: 'centimeters', mm: 'millimeters' }[lengthUnit()]} (eenheid van het project).`,
       );
     };
     if (item.below) {

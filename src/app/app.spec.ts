@@ -87,6 +87,31 @@ describe('App', () => {
     print.mockRestore();
   });
 
+  it('switches a project to millimetres: values are rewritten, results shown in mm, area stays m²', async () => {
+    storage.projects = [exampleProject()];
+    const { fixture, el, store } = render();
+    store.openProject('voorbeeld-schuur');
+    store.openItem('vb-vorm');
+    await settle(fixture);
+    const before = el.querySelector('.results')!.textContent!;
+    expect(before).toContain('m²');
+    (Array.from(el.querySelectorAll('.unit-pick [role=radio]')).find((b) => b.textContent?.trim() === 'mm') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(store.unit()).toBe('mm');
+    const vorm = store.currentProject()!.items.find((i) => i.id === 'vb-vorm') as VormItem;
+    expect(vorm.sides[0]).toBe('4820');
+    expect(vorm.height).toBe('2350');
+    // Same area as before, lengths now in mm.
+    const after = el.querySelector('.results')!.textContent!;
+    expect(after).toContain(before.match(/[\d,]+ m²/)![0]);
+    expect(after).toMatch(/\d+ mm/);
+    expect(el.querySelector('app-measure-field .field-unit')?.textContent?.trim()).toBe('mm');
+    // Typing "345 cm" in a mm project shows what it is in mm.
+    store.setProjectUnit('voorbeeld-schuur', 'm');
+    await settle(fixture);
+    expect((store.currentProject()!.items.find((i) => i.id === 'vb-vorm') as VormItem).sides[0]).toBe('4,820');
+  });
+
   it('renders every editor for the example project with a result and a drawing', async () => {
     storage.projects = [exampleProject()];
     const { fixture, el, store } = render();

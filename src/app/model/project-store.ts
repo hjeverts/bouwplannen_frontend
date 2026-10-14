@@ -1,6 +1,10 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { computed, effect, inject, Injectable, signal } from '@angular/core';
+import { LengthUnit, lengthUnit } from '../geometry/units';
+import { convertItem } from './convert-units';
 import { createItem, Item, ItemKind, newId, Project } from './models';
 import { PROJECT_STORAGE } from './storage';
+
+const UNIT_KEY = 'bouwplannen.unit.v1';
 
 export type ProjectChange = { type: 'upsert'; id: string } | { type: 'delete'; id: string };
 
@@ -19,6 +23,41 @@ export class ProjectStore {
 
   readonly currentProject = computed(() => this.projects().find((p) => p.id === this.currentProjectId()) ?? null);
   readonly currentItem = computed(() => this.currentProject()?.items.find((i) => i.id === this.currentItemId()) ?? null);
+  /** Unit of the open project; numbers typed without a unit are in it. */
+  readonly unit = computed<LengthUnit>(() => this.currentProject()?.settings?.unit ?? 'm');
+
+  constructor() {
+    // Parsing and formatting everywhere follow the open project's unit.
+    effect(() => lengthUnit.set(this.unit()));
+  }
+
+  /** Unit for new projects: the one chosen last. */
+  private defaultUnit(): LengthUnit {
+    try {
+      const u = localStorage.getItem(UNIT_KEY);
+      return u === 'cm' || u === 'mm' ? u : 'm';
+    } catch {
+      return 'm';
+    }
+  }
+
+  /**
+   * Change the unit of a project. Lengths typed without a unit are rewritten in the new unit, so the
+   * measurements stay the same size.
+   */
+  setProjectUnit(id: string, unit: LengthUnit): void {
+    const project = this.projects().find((p) => p.id === id);
+    if (!project) return;
+    const from = project.settings?.unit ?? 'm';
+    if (from === unit) return;
+    this.updateProject(id, (p) => ({ ...p, settings: { ...p.settings, unit }, items: p.items.map((i) => convertItem(i, from, unit)) }));
+    if (this.currentProjectId() === id) lengthUnit.set(unit);
+    try {
+      localStorage.setItem(UNIT_KEY, unit);
+    } catch {
+      // Not remembered; new projects start in metres.
+    }
+  }
 
   private commit(projects: Project[]): void {
     this.projects.set(projects);
@@ -51,6 +90,8 @@ export class ProjectStore {
 
   openProject(id: string | null): void {
     this.currentProjectId.set(id);
+    // At once, not only after the next render: results computed right away use the right unit.
+    lengthUnit.set(this.projects().find((p) => p.id === id)?.settings?.unit ?? 'm');
     this.currentItemId.set(null);
   }
 
@@ -60,7 +101,8 @@ export class ProjectStore {
 
   createProject(name: string, groupId?: string): Project {
     const now = new Date().toISOString();
-    const project: Project = { id: newId(), name: name.trim() || 'Nieuw project', created: now, updated: now, items: [] };
+    const unit = this.defaultUnit();
+    const project: Project = { id: newId(), name: name.trim() || 'Nieuw project', created: now, updated: now, items: [], ...(unit !== 'm' ? { settings: { unit } } : {}) };
     if (groupId) project.groupId = groupId;
     this.commit([project, ...this.projects()]);
     this.notify({ type: 'upsert', id: project.id });

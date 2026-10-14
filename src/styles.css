@@ -1707,3 +1707,11 @@ app-house-viewer {
 .plan-mode {
   margin-top: 10px;
 }
+.unit-pick {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 14px;
+}
+.unit-pick .segmented {
+  justify-self: start;
+}

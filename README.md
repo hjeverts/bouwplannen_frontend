@@ -15,7 +15,7 @@ Angular-app om op de bouwplaats maten vast te leggen en door te rekenen. Bedoeld
 | **Plattegrond** | Ruimtes tegen elkaar, muurdiktes, trapgat, verdieping, kappen (ook over een uitbouw), dakkapellen, dakramen | Plattegrond, 3D, gevels met maten, buitenmaat-controle, A4-print |
 | **Losse maten** | Lijst met label + maat | Opgeteld totaal |
 
-Invoer accepteert `3,456`, `3.456`, `345,6 cm` en `3456 mm`. Export naar JSON (back-up), CSV (Excel, met `;` en decimale komma) en DXF (omtrek in mm voor CAD).
+Per project kies je de eenheid voor maten: **m, cm of mm**. Een getal zonder eenheid is in die eenheid; `345,6 cm` of `3,456 m` mag altijd. Wissel je van eenheid, dan worden de ingevulde maten omgerekend (er verandert niets van grootte). Uitkomsten van lengtes staan in de eenheid van het project, oppervlakte en inhoud altijd in m² en m³. Nieuwe projecten krijgen de laatst gekozen eenheid. Export naar JSON (back-up), CSV (Excel, met `;` en decimale komma) en DXF (omtrek in mm voor CAD).
 
 ### Plattegrond, verdiepingen en kap
 
@@ -73,7 +73,7 @@ src/app/
 ```bash
 npm install --legacy-peer-deps   # npm 10 struikelt anders over een peer-dependency
 npm start                        # http://localhost:4200, /api gaat naar de backend op :5094
-npm test -- --watch=false        # Vitest, 166 tests
+npm test -- --watch=false        # Vitest, 169 tests
 npm run build                    # dist/bouwplannen-frontend/browser, statisch te hosten
 ```
 

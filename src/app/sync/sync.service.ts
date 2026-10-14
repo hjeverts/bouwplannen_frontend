@@ -297,7 +297,7 @@ export class SyncService {
   }
 
   private put(project: Project, version: number | null): Promise<ApiResponse<RemoteProject>> {
-    const body = { id: project.id, name: project.name, created: project.created, updated: project.updated, groupId: project.groupId, items: project.items };
+    const body = { id: project.id, name: project.name, created: project.created, updated: project.updated, groupId: project.groupId, settings: project.settings ?? null, items: project.items };
     return this.api.request<RemoteProject>('PUT', `/api/projects/${encodeURIComponent(project.id)}`, body, ifMatch(version));
   }
 
@@ -335,5 +335,8 @@ function ifMatch(version: number | null): Record<string, string> {
 }
 
 function toProject(r: RemoteProject): Project {
-  return { id: r.id, name: r.name, created: r.created, updated: r.updated, groupId: r.groupId, items: r.items };
+  const p: Project = { id: r.id, name: r.name, created: r.created, updated: r.updated, groupId: r.groupId, items: r.items };
+  // Older servers do not send settings; the server sends null when there are none.
+  if (r.settings) p.settings = r.settings;
+  return p;
 }

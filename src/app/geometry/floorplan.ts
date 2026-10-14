@@ -12,6 +12,7 @@
 import { MultiPolygon, Polygon as ClipPolygon, Ring } from 'polygon-clipping';
 import { difference, intersection, union as unionAll } from './clip';
 import { GeometryError, Point } from './geometry';
+import { formatLength } from './units';
 import { placeRoof, PlacedRoof, PlanRoofInput } from './roofs';
 
 export { roofProfile } from './roofs';
@@ -933,6 +934,12 @@ function followRoof(r: PlacedRoom, roof: PlacedRoof, warnings: string[]): void {
     for (const o of w.openings) {
       holes += o.width * o.height;
       if (!o.own) continue;
+      if (o.offset < -MM || o.offset + o.width > w.length + MM) {
+        warnings.push(
+          `${o.name || 'Een opening'} past niet op wand ${wallName(w.index, r.walls.length)} van ${r.name}: ${fmt(o.offset)} + ${fmt(o.width)} is langer dan de wand (${fmt(w.length)}).`,
+        );
+        continue;
+      }
       const room = lowestTop(w, Math.max(0, o.offset), Math.min(w.length, o.offset + o.width));
       if (o.sill + o.height > room + MM) {
         warnings.push(
@@ -1100,7 +1107,8 @@ export function pointInPolygon(p: Point, poly: Point[], margin = 0): boolean {
 }
 
 function fmt(m: number): string {
-  return m.toFixed(3).replace('.', ',') + ' m';
+  // In the project's unit, like everything the user reads.
+  return formatLength(m);
 }
 
 function fmtMm(m: number): string {

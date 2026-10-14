@@ -398,7 +398,8 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
 
   // Vertical, right of the building: floor levels, eaves/top of the walls and the ridge.
   const heights = new Set<number>([0, top]);
-  for (const lv of levels) if (lv.base > 0 && !lv.open) heights.add(lv.base);
+  // Floor levels seen from outside (not a loft or an attic inside the roof: those would hide the eaves).
+  for (const lv of levels) if (lv.base > 0 && !lv.open && !lv.plan.insideRoof) heights.add(lv.base);
   // In an elevation the screen height is the real height: take the corners of walls, dormers and flat roofs.
   // Only corners you can see: not covered by a face drawn later (nearer).
   faces.forEach((f, i) => {
@@ -410,7 +411,7 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
   });
   // Heights closer than 30 cm to one already shown would make the chain unreadable. Keep, in order:
   // ground and top, floor levels, then the other corners from low to high.
-  const floorsAt = levels.filter((lv) => lv.base > 0 && !lv.open).map((lv) => lv.base);
+  const floorsAt = levels.filter((lv) => lv.base > 0 && !lv.open && !lv.plan.insideRoof).map((lv) => lv.base);
   const rank = (h: number) => (h === 0 || h === top ? 0 : floorsAt.some((b) => Math.abs(b - h) < 1e-6) ? 1 : 2);
   const hs: number[] = [];
   for (const h of [...heights].filter((x) => x <= top + 1e-6).sort((a, b) => rank(a) - rank(b) || a - b)) {

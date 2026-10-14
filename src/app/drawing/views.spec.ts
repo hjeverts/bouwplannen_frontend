@@ -678,6 +678,8 @@ describe('attic: walls follow the roof', () => {
     expect(Math.max(...decals[0].pts.map((p) => p.z))).toBeCloseTo(2, 9);
     const side = elevationView(levels, 'rechts');
     expect(side.prims.some((p) => p.t === 'poly' && p.cls === 'f-glass')).toBe(true);
+    const off = build([{ name: 'raam', wall: 1, offset: 7, width: 1, height: 1, sill: 0.8 }]);
+    expect(off.warnings.some((w) => /raam past niet op wand 2–3 van Zolder/.test(w))).toBe(true);
     const low = build([{ name: 'raam', wall: 1, offset: 0.5, width: 1, height: 1.2, sill: 0.8 }]);
     expect(low.warnings.some((w) => /raam in Zolder past niet onder de kap/.test(w))).toBe(true);
     // The plan shows where it is 1,50 m high; the inside view shows the walls up to the roof.
@@ -814,8 +816,10 @@ describe('attic floor inside the roof of the floor below', () => {
     const decals = faces.flatMap((f) => f.decals);
     expect(decals.map((d) => d.name)).toEqual(['zolderraam']);
     expect(Math.min(...decals[0].pts.map((p) => p.z))).toBeCloseTo(2.75 + 0.8, 9);
-    // The elevation shows the attic floor as a level.
-    expect(elevationView(levels, 'rechts').prims.some((p) => p.t === 'text' && p.text === '+2750')).toBe(true);
+    // The elevation shows the eaves, not the attic floor (not seen from outside, it would hide the eaves).
+    const side = elevationView(levels, 'rechts').prims.flatMap((p) => (p.t === 'text' ? [p.text] : []));
+    expect(side).toContain('+2500');
+    expect(side).not.toContain('+2750');
   });
 });
 

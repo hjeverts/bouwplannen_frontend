@@ -1,4 +1,7 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, inject, input, output } from '@angular/core';
+import { roofSheet } from '../drawing/roof-sheet';
+import { ProjectStore } from '../model/project-store';
+import { PrintService } from '../ui/print';
 import { centroid, Drawing, DrawingSpec, Mark, Segment } from '../drawing/drawing';
 import { Point, RoofResult } from '../geometry/geometry';
 import { formatAngle, formatArea, formatLength, formatMm, formatPercent } from '../geometry/units';
@@ -152,6 +155,12 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
       <app-results [rows]="rows()" [message]="tooMany() ? null : message()" [state]="outcome().status" />
       <app-drawing [spec]="drawing()" ariaLabel="Doorsnede van het dak" />
     </div>
+    @if (outcome().status === 'ok') {
+      <div class="opening-actions">
+        <button type="button" class="btn" (click)="printSheet()">Spant printen (A4)</button>
+        <span class="hint">Doorsnede op schaal met alle maten, hoogtes, zaagsneden, latverdeling en materiaal.</span>
+      </div>
+    }
 
     <details class="more" [open]="hasBuildup()">
       <summary>Dakopbouw en hoogtes</summary>
@@ -246,6 +255,21 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
 export class DakEditor {
   readonly item = input.required<DakItem>();
   readonly changed = output<DakItem>();
+
+  private readonly printer = inject(PrintService);
+  private readonly store = inject(ProjectStore);
+
+  /** The work drawing of the truss on A4, for building from. */
+  sheet(): string | null {
+    const o = this.outcome();
+    if (o.status !== 'ok') return null;
+    return roofSheet(o.value, { project: this.store.currentProject()?.name ?? '', subject: this.item().name || 'Kap' });
+  }
+
+  protected printSheet(): void {
+    const svg = this.sheet();
+    if (svg) this.printer.print(svg);
+  }
 
   protected readonly type = computed(() => this.item().roofType);
   protected readonly outcome = computed(() => computeDak(this.item()));

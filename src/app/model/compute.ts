@@ -174,6 +174,8 @@ export interface DakResult {
   roof: RoofResult;
   /** Length of purlins, ridge and eaves: roof length plus the overhangs at the gable ends. */
   purlinLength: number | null;
+  /** Roof length as entered (gable to gable, without overhangs). */
+  length: number | null;
   /** Roof surface per slope, including both overhangs, when the roof length is known. */
   surfaceLeft: number | null;
   surfaceRight: number | null;
@@ -293,7 +295,7 @@ function computeSection(item: DakItem): Outcome<Omit<DakResult, 'tiles' | 'tiles
       if ([rise, pitch, rafter].every((v) => v === null)) return incomplete('Vul voor het bovendak de hoogte, helling of lengte in.');
       const roof = mansardSection({ span, lower, upper: { rise, pitch, length: rafter }, overhang, overhangRight });
       const perSide = (s: { rafterWithOverhang: number }) => (purlinLength === null ? null : (s.rafterWithOverhang + roof.upper!.rafter) * purlinLength);
-      return { status: 'ok', value: { roof, purlinLength, surfaceLeft: perSide(roof.left), surfaceRight: perSide(roof.right!) } };
+      return { status: 'ok', value: { roof, purlinLength, length, surfaceLeft: perSide(roof.left), surfaceRight: perSide(roof.right!) } };
     }
 
     const isGable = item.roofType === 'zadeldak';
@@ -321,6 +323,7 @@ function computeSection(item: DakItem): Outcome<Omit<DakResult, 'tiles' | 'tiles
       value: {
         roof,
         purlinLength,
+        length,
         surfaceLeft: purlinLength === null ? null : roof.left.rafterWithOverhang * purlinLength,
         surfaceRight: purlinLength === null || !roof.right ? null : roof.right.rafterWithOverhang * purlinLength,
       },

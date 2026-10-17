@@ -127,3 +127,45 @@ export function overviewSheet(views: { view3d: View; plan: View | null; elevatio
   body += titleBlock(meta, `1:${denominator} (3D niet op schaal)`);
   return svgPage(body);
 }
+
+/**
+ * A drawing at the largest standard scale that fits the left part of the page, with a column of
+ * text on the right (tables of measurements). `panel` gets the column's box and returns SVG.
+ */
+export function sheetWithPanel(view: View, meta: SheetMeta, panelWidth: number, panel: (x: number, y: number, w: number, h: number) => string): string {
+  const areaH = A4.h - 2 * MARGIN - STRIP;
+  const cell: Cell = { x: MARGIN, y: MARGIN, w: A4.w - 2 * MARGIN - panelWidth, h: areaH };
+  const denominator = commonScale([view], cell);
+  const { pl } = placeIn(view, cell, denominator);
+  const px = MARGIN + cell.w;
+  const body =
+    cellTitle(cell, view.title ?? meta.subject, denominator) +
+    renderPrims(view, pl) +
+    `<path class="bp-frame-thin" d="M${px} ${MARGIN}V${MARGIN + areaH}"/>` +
+    panel(px + 3, MARGIN + 3, panelWidth - 6, areaH - 6) +
+    titleBlock(meta, `1:${denominator}`);
+  return svgPage(body);
+}
+
+/** Text helpers for a panel: a heading and rows of label + values, right-aligned values. */
+export function panelTable(x: number, y: number, w: number, title: string, rows: string[][], cols?: number[]): { svg: string; height: number } {
+  const lh = 3.55;
+  let svg = `<text class="bp-title" x="${x}" y="${y + 3.2}" font-size="3.3">${esc(title)}</text>`;
+  let yy = y + 3.4;
+  const n = Math.max(1, ...rows.map((r) => r.length - 1));
+  // Value columns from the right edge; the label takes the rest.
+  const widths = cols ?? Array.from({ length: n }, () => (n === 1 ? 30 : 16));
+  rows.forEach((r, i) => {
+    yy += lh;
+    // A first row with a blank or arrowed label is the column header.
+    const head = i === 0 && (r[0] === '' || r[0].endsWith('→'));
+    if (i > 0 || !head) svg += `<path class="bp-frame-thin" style="stroke-opacity:.25" d="M${x} ${yy + 1.2}H${x + w}"/>`;
+    svg += `<text class="${head ? 'bp-muted' : 'bp-label-sub'}" x="${x}" y="${yy}" font-size="2.4">${esc(r[0])}</text>`;
+    let right = x + w;
+    for (let c = r.length - 1; c >= 1; c--) {
+      svg += `<text class="${head ? 'bp-muted' : 'bp-label'}" x="${right}" y="${yy}" font-size="2.4" text-anchor="end">${esc(r[c])}</text>`;
+      right -= widths[c - 1] ?? 16;
+    }
+  });
+  return { svg, height: yy - y + 3 };
+}

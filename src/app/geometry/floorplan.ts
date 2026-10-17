@@ -873,6 +873,7 @@ export function roofSeenFrom(roof: PlacedRoof, shift: Point, dz: number): Placed
     ...roof,
     profile: roof.profile.map(move),
     eaves: roof.eaves.map(move),
+    inside: roof.inside.map(move),
     from: roof.from - dv,
     to: roof.to - dv,
     vMin: roof.vMin - dv,
@@ -882,6 +883,7 @@ export function roofSeenFrom(roof: PlacedRoof, shift: Point, dz: number): Placed
     dormers: [],
     windows: [],
     heightAt: (c: number) => roof.heightAt(c + dc) - dz,
+    insideAt: (c: number) => roof.insideAt(c + dc) - dz,
   };
 }
 
@@ -911,10 +913,11 @@ function lowestTop(w: PlacedWall, s0: number, s1: number): number {
  */
 function followRoof(r: PlacedRoom, roof: PlacedRoof, warnings: string[]): void {
   const across = (p: Point) => (roof.ridge === 'x' ? p.y : p.x);
-  const z = (c: number) => Math.max(0, roof.heightAt(c));
+  // The attic follows the underside of the construction, not the outside of the roof.
+  const z = (c: number) => Math.max(0, roof.insideAt(c));
   r.followsRoof = true;
   r.heights = r.points.map((p) => z(across(p)));
-  const bends = roof.profile.map((p) => p.c);
+  const bends = roof.inside.map((p) => p.c);
   let gross = 0;
   let holes = 0;
   for (const w of r.walls) {

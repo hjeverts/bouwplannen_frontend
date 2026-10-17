@@ -6,6 +6,7 @@
  * In plan, `c` is the coordinate across the ridge (y for a ridge along x, x for a ridge along y)
  * and `v` the coordinate along the ridge. Heights are from this floor.
  */
+import { heightOn, offsetLine } from './buildup';
 import { Point, RoofResult } from './geometry';
 
 export interface P3 {
@@ -61,6 +62,11 @@ export interface PlanRoofInput {
   gableOverhangEnd?: number | null;
   /** Roof length as entered on the roof, to compare with the building. */
   length: number | null;
+  /**
+   * From the roof as entered down to the underside of the construction, square to the slopes
+   * (the roof build-up when the roof was entered as the top of the tiles); 0 or absent = the same.
+   */
+  underside?: number;
   /** Ids of the rooms under this roof; empty = the whole floor. */
   rooms?: string[];
   dormers?: DormerInput[];
@@ -127,8 +133,11 @@ export interface PlacedRoof {
   lengthDiff: number | null;
   dormers: PlacedDormer[];
   windows: PlacedRoofWindow[];
-  /** Height of the roof underside at plan coordinate c across the ridge. */
+  /** Height of the roof (as entered: the outside, or the underside) at plan coordinate c across the ridge. */
   heightAt: (c: number) => number;
+  /** Underside of the construction, wall to wall: what an attic under the roof follows. */
+  inside: ProfilePoint[];
+  insideAt: (c: number) => number;
 }
 
 export interface Region {
@@ -205,6 +214,11 @@ export function placeRoof(input: PlanRoofInput, region: Region, rooms: number[],
     return profile[profile.length - 1].z;
   };
   const planes = planeLabels(profile, ridge);
+  // The underside of the construction, for an attic: the roof line moved down square to its slopes.
+  const below = Math.max(0, input.underside ?? 0);
+  const inside = below > 0 ? offsetLine(profile.map((p) => ({ x: p.c, y: p.z })), -below).map((p) => ({ c: p.x, z: p.y })) : profile;
+  const insidePts = inside.map((p) => ({ x: p.c, y: p.z }));
+  const insideAt = (c: number) => heightOn(insidePts, c);
   const toPlan = (c: number, v: number): Point => (ridge === 'x' ? { x: v, y: c } : { x: c, y: v });
   const at = (c: number, v: number, z: number): P3 => ({ ...toPlan(c, v), z });
 
@@ -321,5 +335,7 @@ export function placeRoof(input: PlanRoofInput, region: Region, rooms: number[],
     dormers,
     windows,
     heightAt,
+    inside,
+    insideAt,
   };
 }

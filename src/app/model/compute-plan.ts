@@ -146,6 +146,8 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[], seen: S
         gableOverhang: lengthOr(dak.gableOverhang, 'Overstek kopgevel', 0) ?? 0,
         gableOverhangEnd: lengthOr(dak.gableOverhangEnd, 'Overstek andere kopgevel', null),
         length: lengthOr(dak.length, 'Daklengte', null),
+        // Entered as the top of the tiles: an attic follows the underside of the build-up.
+        underside: r.value.buildup ? -r.value.buildup.lines[0].offset : 0,
         rooms: entry.rooms,
         dormers: entry.dormers.flatMap((d, i) => {
           const label = d.name || `dakkapel ${i + 1}`;

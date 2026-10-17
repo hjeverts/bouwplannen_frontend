@@ -1012,3 +1012,42 @@ describe('overhang per side in the elevations', () => {
     expect(renderFitted(both.view, 800, 600)).toContain('class="bp-roof-edge"');
   });
 });
+
+describe('attic under a roof with a build-up', () => {
+  const now = '';
+  const vorm = (id: string, w: string, d: string, h: string, mode: string) => ({ id, kind: 'vorm', name: id, notes: '', updated: now, method: 'hoeken', sides: [w, d, w, d], diagonals: [''], flips: [false, false, false, false], angles: ['90', '90'], height: h, heightMode: mode, heights: ['', '', '', ''], openings: [] });
+  const floor = (id: string, room: string, extra: object) => ({ id, kind: 'plattegrond', name: id, notes: '', updated: now, rooms: [{ roomId: room }], outerWall: '0.3', measuredWidth: '', measuredDepth: '', turn: 0, roofId: '', ridge: 'x', roofFlip: false, plateHeight: '', below: '', floorThickness: '0.3', shiftX: '', shiftY: '', ...extra });
+  const items = (buildup?: object) =>
+    [
+      vorm('w', '7.4', '5.9', '2.8', 'gelijk'),
+      vorm('z', '7.7', '6.2', '', 'kap'),
+      { id: 'kap', kind: 'dak', name: 'Kap', notes: '', updated: now, roofType: 'zadeldak', span: '6.5', rise: '2', pitch: '', rafter: '', ridgeOffset: '', overhang: '', length: '', buildup },
+      floor('bg', 'w', {}),
+      floor('zo', 'z', { below: 'bg', outerWall: '0.15', roofs: [{ roofId: 'kap', rooms: [], ridge: 'x', flip: false, plateHeight: '', dormers: [], windows: [] }] }),
+    ] as never[];
+  const attic = (buildup?: object) => {
+    const all = items(buildup);
+    const r = computePlattegrond(all[4], all);
+    if (r.status !== 'ok') throw new Error(r.message);
+    return r.value.plan;
+  };
+
+  it('follows the underside of the construction, while the outside stays the roof as entered', () => {
+    const plain = attic();
+    // 305 mm build-up, entered as the top of the tiles (the default).
+    const built = attic({ reference: 'boven', rafter: '0.175', deck: '0.018', counter: '0.022', batten: '0.022', tile: '0.068' });
+    const pitch = Math.atan2(2, 3.25);
+    const plumb = 0.305 / Math.cos(pitch);
+    const top = (p: typeof plain) => Math.max(...p.rooms[0].walls.flatMap((w) => (w.top ?? []).map((t) => t.z)));
+    // Highest point of the attic: under the ridge, the plumb build-up lower.
+    expect(top(plain)).toBeCloseTo(2, 6);
+    expect(top(built)).toBeCloseTo(2 - plumb, 6);
+    expect(built.rooms[0].volume!).toBeLessThan(plain.rooms[0].volume!);
+    expect(built.rooms[0].usableArea!).toBeLessThan(plain.rooms[0].usableArea!);
+    // The roof itself (3D, elevations) is unchanged.
+    expect(built.roofs[0].heightAt(3.25)).toBeCloseTo(plain.roofs[0].heightAt(3.25), 9);
+    // Built up from the underside: the attic follows the roof as entered.
+    const fromBelow = attic({ reference: 'onder', rafter: '0.175', deck: '', counter: '', batten: '', tile: '0.068' });
+    expect(top(fromBelow)).toBeCloseTo(2, 6);
+  });
+});

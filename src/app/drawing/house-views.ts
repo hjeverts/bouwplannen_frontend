@@ -207,7 +207,7 @@ export function planView(plan: FloorPlan, opts: PlanViewOptions = {}): View {
       const ri = plan.roomRoof[r.index];
       const roof = ri === null || ri === undefined ? null : plan.roofs[ri];
       if (roof) {
-        const prof = roof.profile;
+        const prof = roof.inside;
         for (let i = 0; i + 1 < prof.length; i++) {
           const a = prof[i];
           const b = prof[i + 1];

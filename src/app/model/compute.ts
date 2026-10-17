@@ -202,7 +202,9 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
   let tiles: TileResult | null = null;
   let tilesMessage: string | null = null;
   try {
-    tiles = tilesOf(item.tiles, r.value, buildup?.battenSlopes);
+    // A build-up without counter battens: the battens go straight onto the rafters.
+    const noCounter = buildup !== null && !buildup.lines.some((l) => l.name === 'Bovenkant tengel');
+    tiles = tilesOf(item.tiles, r.value, buildup?.battenSlopes, noCounter);
   } catch (e) {
     if (!(e instanceof GeometryError || e instanceof InputError)) throw e;
     tilesMessage = e.message;
@@ -233,7 +235,7 @@ function buildupOf(entry: BuildupEntry | undefined, roof: RoofResult): BuildupRe
 const NUMBER_RE = /^\s*(\d+(?:[.,]\d+)?)\s*(kg)?\s*$/i;
 
 /** Tiles from the entered tile data; null when nothing is entered. Throws on a missing or wrong value. */
-function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage'>, slopes?: number[]): TileResult | null {
+function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage'>, slopes?: number[], noCounter = false): TileResult | null {
   if (!entry || Object.values(entry).every((v) => !String(v ?? '').trim())) return null;
   const positive = (text: string, label: string) => {
     const v = len(text, label);
@@ -260,6 +262,7 @@ function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 't
     ridgeGap: len(entry.ridgeGap, 'Afstand bovenste lat tot nok') ?? 0.035,
     eavesGap: eavesGap!,
     counterSpacing: positive(entry.counterSpacing, 'Tengelafstand') ?? 0.6,
+    counter: !noCounter,
     vergeStart: positive(entry.vergeStart, 'Gevelpan links / voor'),
     vergeEnd: positive(entry.vergeEnd, 'Gevelpan rechts / achter'),
     minPitch,

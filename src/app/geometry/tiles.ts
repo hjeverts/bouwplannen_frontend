@@ -28,6 +28,8 @@ export interface TileSpec {
   eavesGap: number;
   /** Counter battens, centre to centre (usually on every rafter). */
   counterSpacing: number;
+  /** False when there are none: the battens are screwed straight onto the rafters. */
+  counter?: boolean;
   /** Cover width of the verge tiles (gevelpannen) at the start and the end of the ridge; null = none. */
   vergeStart: number | null;
   vergeEnd: number | null;
@@ -69,6 +71,8 @@ export interface TileResult {
   widthDiff: number | null;
   tiles: number | null;
   vergeTiles: number | null;
+  /** Counter battens are used (false: battens straight on the rafters). */
+  counter: boolean;
   /** Battens including the eaves batten of each plane, in metres; per plane as a count. */
   battenLength: number | null;
   counterBattens: number | null;
@@ -151,7 +155,7 @@ export function computeTiles(roof: RoofResult, width: number | null, spec: TileS
           `Maak de overstek ${mm(level)} ${d.eavesDiff > 0 ? 'korter' : 'langer'} (waterpas gemeten) of schuif de bovenste lat.`,
       );
     }
-    const counterBattens = width === null ? null : Math.floor(width / spec.counterSpacing + EPS) + 1;
+    const counterBattens = width === null || spec.counter === false ? null : Math.floor(width / spec.counterSpacing + EPS) + 1;
     return { label: p.label, pitch: p.pitch, ...d, counterBattens };
   });
 
@@ -168,8 +172,8 @@ export function computeTiles(roof: RoofResult, width: number | null, spec: TileS
   const vergeTiles = normalPerRow === null ? null : rows * verges.length;
   // Every plane also has its eaves batten (gootlat).
   const battenCount = planes.reduce((s, p) => s + p.battens + 1, 0);
-  const counterBattens = planes.every((p) => p.counterBattens !== null) ? planes.reduce((s, p) => s + (p.counterBattens ?? 0), 0) : null;
-  const counterLength = width === null ? null : planes.reduce((s, p) => s + (p.counterBattens ?? 0) * p.slope, 0);
+  const counterBattens = spec.counter !== false && planes.every((p) => p.counterBattens !== null) ? planes.reduce((s, p) => s + (p.counterBattens ?? 0), 0) : null;
+  const counterLength = width === null || spec.counter === false ? null : planes.reduce((s, p) => s + (p.counterBattens ?? 0) * p.slope, 0);
   if (planes.length && width !== null && covered !== null && covered - width > spec.cover / 2) {
     const n = normalPerRow ?? 0;
     warnings.push(
@@ -180,6 +184,7 @@ export function computeTiles(roof: RoofResult, width: number | null, spec: TileS
   if (!planes.length) warnings.push('Pannen tellen kan voor een zadeldak en een lessenaarsdak, nog niet voor een mansardekap.');
   return {
     planes,
+    counter: spec.counter !== false,
     width,
     normalPerRow,
     vergePerRow: verges.length,

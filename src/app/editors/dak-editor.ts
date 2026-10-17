@@ -236,7 +236,11 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
       <div class="fields fields--4">
         <app-measure-field label="Bovenste lat tot nok" [value]="t('ridgeGap')" (valueChange)="setTile('ridgeGap', $event)" placeholder="0,035" hint="Langs de spar, meestal 30–40 mm" />
         <app-measure-field label="Laatste latafstand" [value]="t('eavesGap')" (valueChange)="setTile('eavesGap', $event)" hint="Onderste lat tot het einde van de spar, bij de goot" />
-        <app-measure-field label="Tengels h.o.h." [value]="t('counterSpacing')" (valueChange)="setTile('counterSpacing', $event)" placeholder="0,600" hint="Meestal op elke spar" />
+        @if (tiles()?.counter === false) {
+          <p class="hint">Geen tengels in de dakopbouw: de panlatten komen direct op de sporen.</p>
+        } @else {
+          <app-measure-field label="Tengels h.o.h." [value]="t('counterSpacing')" (valueChange)="setTile('counterSpacing', $event)" placeholder="0,600" hint="Meestal op elke spar" />
+        }
       </div>
       <h3 class="group-title">Gevelpannen (als die er zijn)</h3>
       <div class="fields fields--4">
@@ -371,7 +375,7 @@ export class DakEditor {
 
   protected readonly hasTiles = computed(() => Object.values(this.item().tiles ?? {}).some((v) => String(v ?? '').trim()));
 
-  private readonly tiles = computed(() => {
+  protected readonly tiles = computed(() => {
     const o = this.outcome();
     return o.status === 'ok' ? o.value.tiles : null;
   });
@@ -411,7 +415,8 @@ export class DakEditor {
       rows.push({ label: 'Dekking langs de nok', value: `${formatLength(t.covered)} (dak ${formatLength(t.width)})` });
     }
     if (t.battenLength !== null) rows.push({ label: 'Panlatten totaal', value: formatLength(t.battenLength, 1) });
-    if (t.counterBattens !== null) rows.push({ label: 'Tengels', value: `${t.counterBattens} stuks · ${formatLength(t.counterLength, 1)}` });
+    if (!t.counter) rows.push({ label: 'Tengels', value: 'geen: panlatten op de sporen' });
+    else if (t.counterBattens !== null) rows.push({ label: 'Tengels', value: `${t.counterBattens} stuks · ${formatLength(t.counterLength, 1)}` });
     rows.push({ label: 'Pannen per m² (blad)', value: new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 1 }).format(t.perM2) });
     if (t.headLap !== null) rows.push({ label: 'Overlap in de lengte', value: formatMm(t.headLap) });
     if (t.sideLap !== null) rows.push({ label: 'Overlap opzij', value: formatMm(t.sideLap) });

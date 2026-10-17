@@ -248,7 +248,8 @@ export function roofSheet(dak: DakResult, meta: SheetMeta): string {
       if (tiles.tiles !== null) mat.push(['Pannen', `${count(tiles.tiles)}${tiles.normalPerRow !== null ? ` (${tiles.normalPerRow} per rij)` : ''}`]);
       if (tiles.vergeTiles) mat.push(['Gevelpannen', count(tiles.vergeTiles)]);
       if (tiles.battenLength !== null) mat.push(['Panlatten', `${(tiles.battenLength).toFixed(1).replace('.', ',')} m`]);
-      if (tiles.counterBattens !== null && tiles.counterLength !== null) mat.push(['Tengels', `${tiles.counterBattens} st · ${tiles.counterLength.toFixed(1).replace('.', ',')} m`]);
+      if (!tiles.counter) mat.push(['Tengels', 'geen, latten op de sporen']);
+      else if (tiles.counterBattens !== null && tiles.counterLength !== null) mat.push(['Tengels', `${tiles.counterBattens} st · ${tiles.counterLength.toFixed(1).replace('.', ',')} m`]);
       if (tiles.weight !== null) mat.push(['Gewicht pannen', `${count(Math.round(tiles.weight))} kg`]);
       table('Materiaal', mat, [40]);
     }

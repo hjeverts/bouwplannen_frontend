@@ -99,6 +99,22 @@ export function afdakRafterView(o: AfdakOutcome, layers: AfdakLayer[] = []): Vie
   return { prims: [...parts.section.prims, ...moved], title: 'Spoor: doorsnede en zaagtekening', scalable: true };
 }
 
+function shiftPrim(p: Prim, dx: number): Prim {
+  const m = (q: Point) => ({ x: q.x + dx, y: q.y });
+  switch (p.t) {
+    case 'poly':
+      return { ...p, rings: p.rings.map((r) => r.map(m)) };
+    case 'line':
+      return { ...p, pts: p.pts.map(m) };
+    case 'segs':
+      return { ...p, segs: p.segs.map(([a, b]) => [m(a), m(b)] as [Point, Point]) };
+    case 'text':
+      return { ...p, at: m(p.at) };
+    case 'dim':
+      return { ...p, a: m(p.a), b: m(p.b) };
+  }
+}
+
 function movePrim(p: Prim, dy: number): Prim {
   const m = (q: Point) => ({ x: q.x, y: q.y + dy });
   switch (p.t) {
@@ -329,6 +345,154 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: Afdak
       svg += n.svg;
       yy += n.height + 1;
     }
+    return svg;
+  });
+}
+
+/** The beams of an afdak, the front one and the back (or wall) one, with their rafter seats. */
+function beamsOf(o: AfdakOutcome) {
+  const r = o.rafters!;
+  const [back, front] = r.seats;
+  const bh = o.beamHeight ?? 0;
+  const backName = o.plan.attached ? 'Ligger tegen gebouw' : 'Achterligger';
+  return [
+    { name: 'Voorligger', seat: front, height: bh, row: 'voor' as const },
+    { name: backName, seat: back, height: o.plan.attached ? (o.backBeamHeight ?? Math.min(bh, 0.15)) : bh, row: 'achter' as const },
+  ];
+}
+
+/**
+ * A beam from above, its front edge at the bottom: where every rafter comes (and its pocket),
+ * measured from the left end of the beam to the left side of the rafter, and the posts under it.
+ */
+export function afdakBeamView(o: AfdakOutcome, which: 0 | 1): View | null {
+  const r = o.rafters;
+  if (!r) return null;
+  const beam = beamsOf(o)[which];
+  const { seat, name } = beam;
+  const W = o.plan.width;
+  const bw = seat.s1 - seat.s0;
+  const rw = o.rafterWidth ?? 0.05;
+  const prims: Prim[] = [];
+  // y = across the beam, 0 at its front face.
+  const y = (s: number) => seat.s1 - s;
+  prims.push({ t: 'poly', rings: [rect(0, 0, W, bw)], cls: 'f', fill: 'rgb(200,178,138)' });
+  const pocket = seat.pocket > 1e-6;
+  const over = Math.max(0.05, bw * 0.4);
+  r.xs.forEach((x, i) => {
+    const x0 = x - rw / 2;
+    const x1 = x + rw / 2;
+    if (pocket) prims.push({ t: 'poly', rings: [rect(x0, 0, x1, bw)], cls: 'f', fill: 'rgb(150,120,84)' });
+    // The rafter crossing the beam, a little past it on both sides.
+    prims.push({ t: 'line', pts: rect(x0, -over, x1, bw + over), cls: 'sym-thin', closed: true });
+    prims.push({ t: 'text', at: { x: x0, y: bw + over }, text: mm(x0), cls: 'dim-text', size: 2.3, angle: 90, anchor: 'start', dy: 1.5 });
+    prims.push({ t: 'text', at: { x, y: -over }, text: `S${i + 1}`, cls: 'label-sub', size: 2, dy: -2.4 });
+  });
+  // Posts under this beam (dashed outline), with their centre lines.
+  const posts = o.plan.posts.filter((p) => p.row === beam.row);
+  const pw = o.plan.postWidth;
+  const pd = o.plan.postDepth;
+  for (const p of posts) {
+    prims.push({ t: 'line', pts: rect(p.x - pw / 2, y(p.s + pd / 2), p.x + pw / 2, y(p.s - pd / 2)), cls: 'roof-line', closed: true });
+    prims.push({ t: 'line', pts: [{ x: p.x, y: y(p.s + pd / 2) - 0.06 }, { x: p.x, y: y(p.s - pd / 2) + 0.06 }], cls: 'sym' });
+  }
+  // Under the beam: post centres and the length.
+  const yd = Math.min(0, ...posts.map((p) => y(p.s + pd / 2))) - over;
+  const xs = [0, ...posts.map((p) => p.x), W];
+  // Clear of the rafter numbers under the beam.
+  if (posts.length) for (let i = 0; i + 1 < xs.length; i++) if (xs[i + 1] - xs[i] > 0.0005) prims.push({ t: 'dim', a: { x: xs[i], y: yd }, b: { x: xs[i + 1], y: yd }, off: -8, text: mm(xs[i + 1] - xs[i]) });
+  prims.push({ t: 'dim', a: { x: 0, y: yd }, b: { x: W, y: yd }, off: posts.length ? -15 : -8, text: mm(W) });
+  // Across: the beam's width.
+  prims.push({ t: 'dim', a: { x: W, y: 0 }, b: { x: W, y: bw }, off: -5, text: mm(bw) });
+  const what = pocket ? 'inkepingen' : seat.against ? 'sporen ertegen' : 'sporen erop';
+  return { prims, title: `${name} ${mm(bw)} × ${mm(beam.height)}, van boven: ${what} (maat tot linkerkant spoor)`, scalable: true };
+}
+
+/** A pocket in the beam, seen from the front, at a larger scale: its width, depth and the first ones. */
+export function afdakPocketView(o: AfdakOutcome, which: 0 | 1): View | null {
+  const r = o.rafters;
+  if (!r) return null;
+  const beam = beamsOf(o)[which];
+  const { seat } = beam;
+  if (!(seat.pocket > 1e-6)) return null;
+  const rw = o.rafterWidth ?? 0.05;
+  const h = beam.height;
+  const p = seat.pocket;
+  // One pocket inside the beam (the outer rafter is flush with the end), with a bit of beam each side.
+  const xc = r.xs.length > 2 ? r.xs[1] : r.xs[0];
+  const x0 = xc - rw / 2;
+  const x1 = xc + rw / 2;
+  const a0 = Math.max(0, x0 - 0.1);
+  const a1 = Math.min(o.plan.width, x1 + 0.1);
+  const outline: Point[] = [{ x: a0, y: 0 }, { x: a1, y: 0 }, { x: a1, y: h }, { x: x1, y: h }, { x: x1, y: h - p }, { x: x0, y: h - p }, { x: x0, y: h }, { x: a0, y: h }];
+  const prims: Prim[] = [{ t: 'poly', rings: [outline], cls: 'f', fill: 'rgb(200,178,138)' }];
+  prims.push({ t: 'dim', a: { x: x0, y: h }, b: { x: x1, y: h }, off: 5, text: mm(rw) });
+  prims.push({ t: 'dim', a: { x: x1, y: h }, b: { x: x1, y: h - p }, off: -5, text: mm(p) });
+  prims.push({ t: 'dim', a: { x: a0, y: 0 }, b: { x: a0, y: h }, off: 5, text: mm(h) });
+  prims.push({ t: 'text', at: { x: xc, y: 0 }, text: `S${r.xs.indexOf(xc) + 1}, linkerkant op ${mm(x0)} vanaf linkereind`, cls: 'label-sub', size: 2.1, dy: -3 });
+  return { prims, title: beam.name, scalable: true };
+}
+
+/** A4: both beams from above with every rafter position, the pockets, and a table to mark them out. */
+export function afdakBeamSheet(o: AfdakOutcome, meta: SheetMeta): string | null {
+  const r = o.rafters;
+  if (!r) return null;
+  const views: View[] = [];
+  const shares: number[] = [];
+  for (const i of [0, 1] as const) {
+    views.push(afdakBeamView(o, i)!);
+    shares.push(2);
+  }
+  // The pockets side by side in one detail, so it gets a large scale.
+  const details = ([0, 1] as const).map((i) => afdakPocketView(o, i)).filter((d): d is View => d !== null);
+  if (details.length) {
+    const prims: Prim[] = [];
+    let x = 0;
+    for (const d of details) {
+      const xs = d.prims.flatMap((p) => (p.t === 'poly' ? p.rings.flat().map((q) => q.x) : []));
+      const min = Math.min(...xs);
+      const dx = x - min;
+      prims.push(...d.prims.map((p) => shiftPrim(p, dx)));
+      prims.push({ t: 'text', at: { x: x + (Math.max(...xs) - min) / 2, y: 0 }, text: d.title ?? '', cls: 'label', size: 2.4, dy: -8 });
+      x += Math.max(...xs) - min + 0.25;
+    }
+    views.push({ prims, title: 'Inkepingen, voorkant van de ligger gezien', scalable: true });
+    shares.push(2.4);
+  }
+  const rw = o.rafterWidth ?? 0.05;
+  return sheetWithViews(views, shares, meta, 70, (x, y, w) => {
+    let svg = '';
+    let yy = y;
+    const table = (title: string, rows: string[][], cols?: number[]) => {
+      const t = panelTable(x, yy, w, title, rows, cols);
+      svg += t.svg;
+      yy += t.height + 3;
+    };
+    table(
+      'Sporen op de liggers',
+      [['vanaf linkereind', 'linkerkant', 'hart'], ...r.xs.map((c, i) => [`S${i + 1}`, mm(c - rw / 2), mm(c)])],
+      [18, 14],
+    );
+    const posts = o.plan.posts;
+    if (posts.length) table('Staanders onder de ligger (hart)', posts.map((p) => [`${p.name} (${p.row})`, mm(p.x)]), [20]);
+    const rows: string[][] = [];
+    for (const b of beamsOf(o)) {
+      const st = b.seat;
+      rows.push([`${b.name}`, `${mm(o.plan.width)} lang`]);
+      rows.push(['  maat', `${mm(st.s1 - st.s0)} × ${mm(b.height)}`]);
+      if (st.pocket > 1e-6) rows.push(['  inkeping per spoor', `${mm(rw)} br. × ${mm(st.pocket)} diep`]);
+      else if (st.against) rows.push(['  sporen', 'ertegen, kops']);
+      else rows.push(['  sporen', 'erop, met keep']);
+    }
+    table('Liggers', rows, [28]);
+    svg += panelNote(
+      x,
+      yy,
+      w,
+      `Meet alle maten vanaf hetzelfde linkereind van de ligger, niet van spoor tot spoor, dan lopen kleine fouten niet op. Sporen ${mm(r.spacing)} hart op hart; de buitenste gelijk met de rand.${
+        beamsOf(o).some((b) => b.seat.pocket > 1e-6) ? ' Inkepingen met een vlakke bodem, zo breed als de spoor: zaag de zijkanten in en hak het hout eruit.' : ''
+      }`,
+    ).svg;
     return svg;
   });
 }

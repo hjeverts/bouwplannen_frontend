@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afdakPlanSheet, afdakPlanView, afdakRafterSheet, afdakRafterView } from '../drawing/afdak-views';
+import { afdakBeamSheet, afdakBeamView, afdakPlanSheet, afdakPlanView, afdakPocketView, afdakRafterSheet, afdakRafterView } from '../drawing/afdak-views';
 import { computeAfdakEntry } from '../model/compute-afdak';
 import { afdakLayers, computeDak } from '../model/compute';
 import { AfdakEntry, createItem, DakItem, emptyAfdak, emptyAfdakRoof, emptyBuildup, emptyTiles, migrateProject } from '../model/models';
@@ -458,5 +458,101 @@ describe('afdak pockets in the beams', () => {
     // Each beam: a pocket under every rafter, full height between them (outer rafters flush with the edges).
     const n = o.value.rafters!.xs.length;
     expect(beams.length).toBe(2 * (n + n - 1));
+  });
+});
+
+describe('afdak beam drawing', () => {
+  const entry = (roofExtra: Partial<AfdakEntry['roof']> = {}): AfdakEntry => ({
+    ...emptyAfdak(),
+    sizeOf: 'totaal',
+    width: '5',
+    depth: '1,5',
+    postsFront: '3',
+    roof: { ...emptyAfdakRoof(), pitch: '18', frontHeight: '2,2', beamHeight: '0,15', backWidth: '0,15', rafterWidth: '0,05', rafterHeight: '0,15', ...roofExtra },
+  });
+  const outcome = (e: AfdakEntry) => {
+    const o = computeAfdakEntry(e);
+    if (o.status !== 'ok') throw new Error(o.message);
+    return o.value;
+  };
+
+  it('marks every rafter on both beams from the left end, with the posts under the front beam', () => {
+    const o = outcome(entry());
+    const r = o.rafters!;
+    const front = afdakBeamView(o, 0)!;
+    const texts = front.prims.filter((p) => p.t === 'text').map((p) => (p as { text: string }).text);
+    // Left side of every rafter: 0, then one spacing further each time.
+    expect(texts).toContain('0');
+    expect(texts).toContain(String(Math.round((r.xs[1] - 0.025) * 1000)));
+    expect(texts.filter((t) => /^S\d+$/.test(t)).length).toBe(r.xs.length);
+    // Post centres along the front beam.
+    const dims = front.prims.filter((p) => p.t === 'dim').map((p) => (p as { text: string }).text);
+    expect(dims).toContain(String(Math.round(o.plan.posts[0].x * 1000)));
+    expect(afdakPocketView(o, 0)).toBeNull();
+    const sheet = afdakBeamSheet(o, { project: 'Schuur', subject: 'Afdak' })!;
+    expect(sheet).toContain('Sporen op de liggers');
+    expect(sheet).not.toContain('NaN');
+  });
+
+  it('adds a detail of the pocket when the beam has one', () => {
+    const o = outcome(entry({ frontPocket: '0,02' }));
+    const d = afdakPocketView(o, 0)!;
+    expect(d.prims.filter((p) => p.t === 'dim').map((p) => (p as { text: string }).text)).toEqual(expect.arrayContaining(['50', '20']));
+    const sheet = afdakBeamSheet(o, { project: 'Schuur', subject: 'Afdak' })!;
+    expect(sheet).toContain('Inkepingen, voorkant');
+    expect(sheet).toContain('50 br. × 20 diep');
+  });
+});
+
+describe('afdak worked back from the top of the tiles at the wall', () => {
+  const afdak = (roofExtra: Partial<AfdakEntry['roof']>): AfdakEntry => ({
+    ...emptyAfdak(),
+    sizeOf: 'totaal',
+    width: '5',
+    depth: '2',
+    roof: { ...emptyAfdakRoof(), beamHeight: '0,15', backWidth: '0,15', rafterWidth: '0,05', rafterHeight: '0,15', ...roofExtra },
+  });
+  const buildup = { ...emptyBuildup(), deck: '0,018', counter: '0,022', batten: '0,025', tile: '0,06' };
+  const dak = (roofExtra: Partial<AfdakEntry['roof']>) => {
+    const d = computeDak({ ...(createItem('dak') as DakItem), roofType: 'lessenaarsdak', afdakOn: true, afdak: afdak(roofExtra), buildup });
+    if (d.status !== 'ok') throw new Error(d.message);
+    return d.value;
+  };
+  /** The tile line of the build-up at its back end (the wall). */
+  const tilesAtWall = (d: ReturnType<typeof dak>) => {
+    const line = d.buildup!.lines.find((l) => l.name === 'Bovenkant pannen')!.pts;
+    return line.reduce((m, p) => (p.x > m.x ? p : m), line[0]).y;
+  };
+
+  it('finds the wall beam height from the pitch and the tiles', () => {
+    const d = dak({ pitch: '18', tileTop: '2,8' });
+    expect(d.afdak!.tileTopAtWall).toBeCloseTo(2.8, 6);
+    expect(tilesAtWall(d)).toBeCloseTo(2.8, 6);
+    // The wall beam lies the build-up plus the rafter (plumb) and its seat below that.
+    const r = d.afdak!.rafters!;
+    expect(r.backHeight).toBeLessThan(2.8 - (0.15 + 0.125) / Math.cos((18 * Math.PI) / 180) + 0.06);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it('finds the pitch from the front beam and the tiles', () => {
+    const d = dak({ frontHeight: '2,2', tileTop: '2,9' });
+    expect(tilesAtWall(d)).toBeCloseTo(2.9, 6);
+    expect(d.afdak!.rafters!.frontHeight).toBeCloseTo(2.2, 9);
+    const same = dak({ frontHeight: '2,2', backHeight: String(d.afdak!.rafters!.backHeight).replace('.', ',') });
+    expect(same.afdak!.rafters!.pitch).toBeCloseTo(d.afdak!.rafters!.pitch, 6);
+  });
+
+  it('warns when pitch, front beam and tiles do not agree, and refuses a back height as well', () => {
+    const d = dak({ pitch: '18', frontHeight: '2,2', tileTop: '3,5' });
+    expect(d.afdak!.rafters!.warnings.some((w) => /bovenkant van de pannen achter/.test(w))).toBe(true);
+    const o = computeAfdakEntry(afdak({ pitch: '18', backHeight: '2,6', tileTop: '2,8' }), 0.125);
+    expect(o.status === 'ok' && o.value.roofMessage).toMatch(/niet allebei/);
+  });
+
+  it('says so when there is no build-up to work back through', () => {
+    const o = computeAfdakEntry(afdak({ pitch: '18', tileTop: '2,8' }));
+    if (o.status !== 'ok') throw new Error(o.message);
+    expect(o.value.rafters!.warnings.some((w) => /geen dakopbouw/.test(w))).toBe(true);
+    expect(o.value.tileTopAtWall).toBeCloseTo(2.8, 6);
   });
 });

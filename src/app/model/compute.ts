@@ -241,7 +241,7 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
   let afdak: AfdakOutcome | null = null;
   let r: Outcome<Section>;
   if (item.roofType === 'lessenaarsdak' && item.afdakOn) {
-    const a = computeAfdakEntry(item.afdak ?? emptyAfdak());
+    const a = computeAfdakEntry(item.afdak ?? emptyAfdak(), coverThickness(item.buildup));
     if (a.status !== 'ok') return a;
     afdak = a.value;
     if (!afdak.rafters) return { status: 'incomplete', message: afdak.roofMessage ?? 'Vul bij het afdak de helling, de hoogte van een ligger en de maat van liggers en sporen in.' };
@@ -281,6 +281,15 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
     rafterSpacing = size(item.buildup.rafterSpacing);
   }
   return { status: 'ok', value: { ...r.value, tiles, tilesMessage, buildup, buildupMessage, afdak, rafterWidth, rafterSpacing } };
+}
+
+/** Thickness of the build-up on the rafters (decking, counter battens, battens, tiles); 0 for what is not (validly) entered. */
+export function coverThickness(entry: BuildupEntry | undefined): number {
+  if (!entry) return 0;
+  return (['deck', 'counter', 'batten', 'tile'] as const).reduce((sum, k) => {
+    const v = parseLength(entry[k] ?? '');
+    return sum + (v !== null && Number.isFinite(v) && v > 0 ? v : 0);
+  }, 0);
 }
 
 /** Heights of the layers; null when no thickness is entered. */

@@ -367,6 +367,8 @@ export interface AfdakRoofEntry {
   /** Depth of the notch at the heel, square to the rafter (empty = automatic): front beam, and back beam when on top. */
   frontNotch?: string;
   backNotch?: string;
+  /** Top of the tiles at the wall (or the back edge), instead of the back height: worked back through the build-up. */
+  tileTop?: string;
   /** Pockets in the beams at every rafter, plumb depth (empty = none). */
   frontPocket?: string;
   backPocket?: string;

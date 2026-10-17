@@ -165,7 +165,7 @@ export function fit(view: View, w: number, h: number, k: number): Placement {
 }
 
 /** Scale denominators used on building drawings, most detailed first. */
-export const SCALES = [20, 25, 50, 100, 200, 250, 500, 1000];
+export const SCALES = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
 
 /** Largest standard scale (1:n) at which the view fits into w × h mm. */
 export function fitStandard(view: View, w: number, h: number): { placement: Placement; denominator: number } {

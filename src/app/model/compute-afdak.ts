@@ -1,4 +1,4 @@
-import { AfdakResult, computeAfdak, computeRafters, Rafter } from '../geometry/afdak';
+import { AfdakResult, AfdakRoofInput, computeAfdak, computeRafters, Rafter } from '../geometry/afdak';
 import { parseAngle, parseLength } from '../geometry/units';
 import { AfdakEntry } from './models';
 import type { Outcome } from './compute';
@@ -18,6 +18,13 @@ export interface AfdakOutcome {
   backOffset: number;
   /** Where the beams lie on their posts. */
   beamAlign: 'midden' | 'voor' | 'achter';
+  /** Top of the tiles at the wall (or the back edge), the roof line carried on to s = 0. */
+  tileTopAtWall: number | null;
+}
+
+/** Top of the tiles at s = 0: the rafter's top there plus the build-up, both measured plumb. */
+function tilesAtWall(r: Rafter, h: number, cover: number): number {
+  return r.undersideAt(0) + (h + cover) / Math.cos((r.pitch * Math.PI) / 180);
 }
 
 class Missing extends Error {}
@@ -41,7 +48,11 @@ function count(text: string, label: string): number {
   return v;
 }
 
-export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
+/**
+ * `cover`: thickness of the roof build-up on the rafters (decking, counter battens, battens,
+ * tiles), square to the roof; used to work back from the top of the tiles at the wall.
+ */
+export function computeAfdakEntry(item: AfdakEntry, cover = 0): Outcome<AfdakOutcome> {
   let plan: AfdakResult;
   try {
     let width = len(item.width, 'Breedte');
@@ -84,8 +95,11 @@ export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
     try {
       const pitch = parseAngle(r.pitch);
       if (pitch !== null && Number.isNaN(pitch)) throw new Missing(`Dakhelling: "${r.pitch}" is geen hoek.`);
-      const filled = [pitch, len(r.frontHeight, 'Hoogte voorligger'), len(r.backHeight, 'Hoogte achter')].filter((v) => v !== null).length;
-      if (filled < 2) throw new Missing('Vul twee van deze drie in: dakhelling, hoogte voorligger en hoogte achter.');
+      const tileTop = len(r.tileTop, 'Bovenkant pannen achter');
+      const backGiven = len(r.backHeight, 'Hoogte achter');
+      if (tileTop !== null && backGiven !== null) throw new Missing('Vul achter de hoogte van de ligger óf de bovenkant van de pannen in, niet allebei.');
+      const filled = [pitch, len(r.frontHeight, 'Hoogte voorligger'), backGiven ?? tileTop].filter((v) => v !== null).length;
+      if (filled < 2) throw new Missing('Vul twee van deze drie in: dakhelling, hoogte voorligger en hoogte achter (of de bovenkant van de pannen daar).');
       sizes.rafterWidth = len(r.rafterWidth, 'Breedte spoor');
       sizes.rafterHeight = len(r.rafterHeight, 'Hoogte spoor');
       sizes.beamHeight = len(r.beamHeight, 'Hoogte voorligger (balk)');
@@ -96,10 +110,10 @@ export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
       if (off !== null && Number.isNaN(off)) throw new Missing(`Bovenkant spoor t.o.v. ligger: "${offText}" is geen maat.`);
       sizes.backOffset = against ? (offText.startsWith('-') ? -(off ?? 0) : (off ?? 0)) : 0;
       sizes.backBeamHeight = against ? len(r.backBeamHeight, 'Hoogte ligger tegen gebouw') : null;
-      rafters = computeRafters(plan, {
+      const input: AfdakRoofInput = {
         pitch,
         frontHeight: len(r.frontHeight, 'Hoogte voorligger'),
-        backHeight: len(r.backHeight, 'Hoogte achter'),
+        backHeight: backGiven,
         beamWidth: len(r.beamWidth, 'Breedte voorligger', plan.postDepth)!,
         beamHeight: need(len(r.beamHeight, 'Hoogte voorligger (balk)'), 'de hoogte van de voorligger (balk)'),
         backWidth: need(len(r.backWidth, 'Breedte ligger achter', plan.attached ? null : plan.postDepth), plan.attached ? 'de breedte van de ligger tegen het gebouw' : 'de breedte van de achterligger'),
@@ -116,11 +130,31 @@ export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
         backThrough: against && !!r.backThrough,
         frontPocket: len(r.frontPocket, 'Inkeping in voorligger') ?? 0,
         backPocket: against ? 0 : (len(r.backPocket, 'Inkeping in ligger achter') ?? 0),
-      });
+      };
+      if (tileTop === null) rafters = computeRafters(plan, input);
+      else if (pitch !== null && input.frontHeight !== null) {
+        // Pitch and front height fix the roof already: only check the tiles against it.
+        rafters = computeRafters(plan, input);
+        const at = tilesAtWall(rafters, input.rafterHeight, cover);
+        if (Math.abs(at - tileTop) > 0.001) rafters.warnings.push(`Met deze helling en voorligger komt de bovenkant van de pannen achter op ${Math.round(at * 1000)} mm, niet op de ingevulde ${Math.round(tileTop * 1000)} mm. Laat een van de drie leeg.`);
+      } else {
+        // Work back from the tiles: the back height that puts the top of the tiles there (the
+        // tile height follows the back height almost one to one, so this settles in a few steps).
+        let b = tileTop - (input.rafterHeight + cover) * 1.1;
+        let tries = 0;
+        for (;;) {
+          rafters = computeRafters(plan, { ...input, backHeight: b });
+          const miss = tileTop - tilesAtWall(rafters, input.rafterHeight, cover);
+          if (Math.abs(miss) < 1e-7 || ++tries > 60) break;
+          b += miss;
+        }
+      }
+      if (rafters && tileTop !== null && cover <= 0) rafters.warnings.push('Er is geen dakopbouw ingevuld: de bovenkant van de pannen is nu de bovenkant van de spoor. Vul bij de dakopbouw beschot, tengel, panlat en pan in.');
     } catch (e) {
       if (!(e instanceof Missing || e instanceof RangeError)) throw e;
       roofMessage = e.message;
     }
   }
-  return { status: 'ok', value: { plan, rafters, roofMessage, ...sizes, notch: r?.notch === '4' ? '4' : '3', beamAlign: r?.beamAlign ?? 'midden' } };
+  const tileTopAtWall = rafters && sizes.rafterHeight !== null ? tilesAtWall(rafters, sizes.rafterHeight, cover) : null;
+  return { status: 'ok', value: { plan, rafters, roofMessage, ...sizes, tileTopAtWall, notch: r?.notch === '4' ? '4' : '3', beamAlign: r?.beamAlign ?? 'midden' } };
 }

@@ -6,9 +6,9 @@ import { buildFrame } from '../geometry/frame3d';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { roofSectionView, roofSheet } from '../drawing/roof-sheet';
 import { heightFor, renderFitted } from '../drawing/vector';
-import { afdakPlanSheet, afdakRafterSheet } from '../drawing/afdak-views';
+import { afdakBeamSheet, afdakPlanSheet, afdakRafterSheet } from '../drawing/afdak-views';
 import { AfdakPanel } from './afdak-editor';
-import { afdakLayers } from '../model/compute';
+import { afdakLayers, coverThickness } from '../model/compute';
 import { ProjectStore } from '../model/project-store';
 import { PrintService } from '../ui/print';
 import { centroid, Drawing, DrawingSpec, Mark, Segment } from '../drawing/drawing';
@@ -61,7 +61,7 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
     }
 
     @if (afdakMode()) {
-      <app-afdak-panel [item]="afdakEntry()" [name]="item().name || 'Afdak'" [layers]="layers()" (changed)="setAfdak($event)" />
+      <app-afdak-panel [item]="afdakEntry()" [cover]="cover()" [name]="item().name || 'Afdak'" [layers]="layers()" (changed)="setAfdak($event)" />
     } @else {
     @switch (type()) {
       @case ('zadeldak') {
@@ -182,7 +182,7 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
           <button type="button" class="btn" (click)="printAll()">Alles printen ({{ sheetCount() }} pagina's)</button>
         }
         @if (afdakMode()) {
-          <span class="hint">Uitzettekening, zaagtekening van de spoor, het spant met dakopbouw, latverdeling en materiaal, en de constructie in 3D.</span>
+          <span class="hint">Uitzettekening, zaagtekening van de spoor, de liggers met de plek van elke spoor, het spant met dakopbouw, latverdeling en materiaal, en de constructie in 3D.</span>
         } @else {
           <span class="hint">Doorsnede op schaal met alle maten, hoogtes, zaagsneden, latverdeling en materiaal{{ sheetCount() > 1 ? '; alles printen voegt de 3D-constructie toe' : '' }}.</span>
         }
@@ -343,7 +343,7 @@ export class DakEditor {
     const o = this.outcome();
     if (o.status !== 'ok') return 0;
     const a = o.value.afdak;
-    return 1 + (a ? 1 + (a.rafters ? 1 : 0) : 0) + (buildFrame(o.value).members.length ? 1 : 0);
+    return 1 + (a ? 1 + (a.rafters ? 2 : 0) : 0) + (buildFrame(o.value).members.length ? 1 : 0);
   });
 
   allSheets(): string[] {
@@ -355,6 +355,8 @@ export class DakEditor {
       sheets.push(afdakPlanSheet(o.value.afdak, meta('uitzetten')));
       const saw = afdakRafterSheet(o.value.afdak, meta('spoor'), afdakLayers(o.value));
       if (saw) sheets.push(saw);
+      const beams = afdakBeamSheet(o.value.afdak, meta('liggers'));
+      if (beams) sheets.push(beams);
     }
     const roof = this.sheet();
     if (roof) sheets.push(roof);
@@ -430,6 +432,7 @@ export class DakEditor {
   /** A lean-to as an afdak on posts: the afdak gives the section. */
   protected readonly afdakMode = computed(() => this.item().roofType === 'lessenaarsdak' && !!this.item().afdakOn);
   protected readonly afdakEntry = computed(() => this.item().afdak ?? emptyAfdak());
+  protected readonly cover = computed(() => coverThickness(this.item().buildup));
   protected readonly layers = computed(() => {
     const o = this.outcome();
     return o.status === 'ok' ? afdakLayers(o.value) : [];

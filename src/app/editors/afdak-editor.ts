@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, output } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { afdakPlanSheet, afdakPlanView, afdakRafterSheet, afdakRafterView } from '../drawing/afdak-views';
+import { afdakBeamSheet, afdakBeamView, afdakPlanSheet, afdakPlanView, afdakRafterSheet, afdakRafterView } from '../drawing/afdak-views';
 import { heightFor, renderFitted, View } from '../drawing/vector';
 import { formatAngle, formatLength, formatMm, lengthInput, parseLength } from '../geometry/units';
 import { computeAfdakEntry } from '../model/compute-afdak';
@@ -83,7 +83,8 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
       <summary>Dak: liggers, sporen en kepen</summary>
       <p class="hint">
         De sporen liggen met een horizontale zit (vogelbek) op de liggers. De keep wordt nooit dieper dan de gekozen deel van de spoorhoogte, zodat de spoor sterk
-        genoeg blijft. Vul twee van deze drie in: dakhelling, hoogte voorligger, hoogte achter; de derde rekent de app uit.
+        genoeg blijft. Vul twee van deze drie in: dakhelling, hoogte voorligger, hoogte achter (de ligger, of de bovenkant van de pannen daar); de derde rekent
+        de app uit.
       </p>
       <div class="fields fields--3">
         <app-measure-field label="Dakhelling" kind="angle" [value]="rf('pitch')" (valueChange)="setRoof('pitch', $event)" [placeholder]="placeholder('pitch')" />
@@ -94,6 +95,13 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
           (valueChange)="setRoof('backHeight', $event)"
           [placeholder]="placeholder('back')"
           hint="Bovenkant, vanaf de vloer"
+        />
+        <app-measure-field
+          [label]="item().attached ? 'Bovenkant pannen tegen gebouw' : 'Bovenkant pannen achter'"
+          [value]="rf('tileTop')"
+          (valueChange)="setRoof('tileTop', $event)"
+          [placeholder]="placeholder('tiles')"
+          hint="In plaats van de hoogte van de ligger: de app rekent via de dakopbouw terug naar de ligger"
         />
       </div>
       <div class="fields fields--4">
@@ -184,6 +192,15 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
         <button type="button" class="btn" (click)="printRafter()">Zaagtekening spoor printen (A4)</button>
       </div>
     }
+    @if (beamSvgs(); as svgs) {
+      @for (svg of svgs; track $index) {
+        <div class="hv-svg afdak-svg" [innerHTML]="svg"></div>
+      }
+      <div class="opening-actions">
+        <button type="button" class="btn" (click)="printBeams()">Liggers printen (A4)</button>
+        <span class="hint">Waar elke spoor en inkeping op de liggers komt, gemeten vanaf het linkereind.</span>
+      </div>
+    }
   `,
 })
 export class AfdakPanel {
@@ -198,7 +215,9 @@ export class AfdakPanel {
   private readonly printer = inject(PrintService);
   private readonly store = inject(ProjectStore);
 
-  protected readonly outcome = computed(() => computeAfdakEntry(this.item()));
+  /** Thickness of the roof build-up on the rafters (from the roof), to work back from the tiles. */
+  readonly cover = input(0);
+  protected readonly outcome = computed(() => computeAfdakEntry(this.item(), this.cover()));
   private readonly value = computed(() => {
     const o = this.outcome();
     return o.status === 'ok' ? o.value : null;
@@ -227,6 +246,12 @@ export class AfdakPanel {
     const v = this.value();
     return v ? this.svg(afdakPlanView(v)) : null;
   });
+  protected readonly beamSvgs = computed(() => {
+    const v = this.value();
+    if (!v?.rafters) return null;
+    return ([0, 1] as const).map((i) => this.svg(afdakBeamView(v, i)));
+  });
+
   protected readonly rafterSvg = computed(() => {
     const v = this.value();
     return v ? this.svg(afdakRafterView(v, this.layers())) : null;
@@ -248,6 +273,7 @@ export class AfdakPanel {
         { label: 'Sporen h.o.h.', value: formatLength(r.spacing) },
         { label: 'Bovenkant voorligger', value: formatLength(r.frontHeight) },
         { label: plan.attached ? 'Bovenkant ligger tegen gebouw' : 'Bovenkant achterligger', value: formatLength(r.backHeight) },
+        ...(this.cover() > 0 && v.tileTopAtWall !== null ? [{ label: plan.attached ? 'Bovenkant pannen tegen gebouw' : 'Bovenkant pannen achter', value: formatLength(v.tileTopAtWall) }] : []),
         { label: 'Staanders voor, lengte', value: formatLength(r.frontPost) },
       );
       if (r.backPost !== null) rows.push({ label: 'Staanders achter, lengte', value: formatLength(r.backPost) });
@@ -262,10 +288,12 @@ export class AfdakPanel {
   });
 
   /** What the app works out for the field left empty. */
-  protected placeholder(which: 'pitch' | 'front' | 'back'): string {
-    const r = this.value()?.rafters;
+  protected placeholder(which: 'pitch' | 'front' | 'back' | 'tiles'): string {
+    const v = this.value();
+    const r = v?.rafters;
     if (!r) return '';
     if (which === 'pitch') return `≈ ${formatAngle(r.pitch, 1)}`;
+    if (which === 'tiles') return v.tileTopAtWall === null ? '' : lengthInput(v.tileTopAtWall, 'm');
     return lengthInput(which === 'front' ? r.frontHeight : r.backHeight, 'm');
   }
 
@@ -336,6 +364,12 @@ export class AfdakPanel {
   protected printPlan(): void {
     const v = this.value();
     if (v) this.printer.print(afdakPlanSheet(v, this.meta('uitzetten')));
+  }
+
+  protected printBeams(): void {
+    const v = this.value();
+    const svg = v && afdakBeamSheet(v, this.meta('liggers'));
+    if (svg) this.printer.print(svg);
   }
 
   protected printRafter(): void {

@@ -50,6 +50,8 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
         wallRight: c(item.wallRight),
         overhang: c(item.overhang)!,
         gableOverhang: c(item.gableOverhang),
+        overhangRight: c(item.overhangRight),
+        gableOverhangEnd: c(item.gableOverhangEnd),
         length: c(item.length)!,
       };
     case 'maten':

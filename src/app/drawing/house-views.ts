@@ -11,7 +11,7 @@ import { Prim, View } from './vector';
 
 const mm = (m: number) => String(Math.round(m * 1000));
 
-const COLOURS: Record<Exclude<Projected['kind'], 'frame'>, [number, number, number]> = {
+const COLOURS: Record<Exclude<Projected['kind'], 'frame' | 'edge'>, [number, number, number]> = {
   facade: [221, 212, 196],
   dormer: [236, 233, 226],
   roof: [112, 78, 64],
@@ -26,7 +26,7 @@ const COLOURS: Record<Exclude<Projected['kind'], 'frame'>, [number, number, numb
 
 function shaded(f: Projected): [number, number, number] {
   const k = 0.64 + 0.36 * f.light;
-  const [r, g, b] = f.colour ? hexToRgb(f.colour) : COLOURS[f.kind === 'frame' ? 'facade' : f.kind];
+  const [r, g, b] = f.colour ? hexToRgb(f.colour) : COLOURS[f.kind === 'frame' || f.kind === 'edge' ? 'roof' : f.kind];
   return [Math.round(r * k), Math.round(g * k), Math.round(b * k)];
 }
 
@@ -36,6 +36,10 @@ const isDecal = (k: Projected['kind']) => k === 'glass' || k === 'door' || k ===
 function projectedPrims(faces: Projected[], labels = true): Prim[] {
   const prims: Prim[] = [];
   for (const f of faces) {
+    if (f.kind === 'edge') {
+      prims.push({ t: 'line', pts: f.rings[0], cls: 'roof-edge', closed: true });
+      continue;
+    }
     const cls = f.kind === 'glass' ? 'f-glass' : f.kind === 'door' ? 'f-door' : f.kind === 'roldeur' ? 'f-roll' : 'f';
     const fill = isDecal(f.kind) && !f.colour ? undefined : shaded(f);
     prims.push({ t: 'poly', rings: f.rings, cls, fill: fill && rgb(fill) });
@@ -380,7 +384,7 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
   const roofMax = Math.max(...all);
   const top = Math.max(...ys);
 
-  prims.push({ t: 'line', pts: [{ x: roofMin - 0.8, y: 0 }, { x: roofMax + 0.8, y: 0 }], cls: 'ground' });
+  prims.push({ t: 'line', pts: [{ x: roofMin - 0.5, y: 0 }, { x: roofMax + 0.5, y: 0 }], cls: 'ground' });
 
   // Horizontal: per floor a chain through its openings seen square-on, then the overall width.
   let row = -6;
@@ -403,7 +407,8 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
     row -= 8;
   }
   prims.push({ t: 'dim', a: { x: minX, y: 0 }, b: { x: maxX, y: 0 }, off: row, text: mm(maxX - minX) });
-  if (roofMax - roofMin > maxX - minX + 0.01) {
+  // Roof wider than the walls (overhangs); left out on the A4 overview, which keeps the main dimensions.
+  if (opts.chains !== false && roofMax - roofMin > maxX - minX + 0.01) {
     prims.push({ t: 'dim', a: { x: roofMin, y: top }, b: { x: roofMax, y: top }, off: 6, text: mm(roofMax - roofMin) });
   }
 
@@ -416,7 +421,7 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
   faces.forEach((f, i) => {
     if (f.kind !== 'facade' && f.kind !== 'dormer' && f.kind !== 'flat' && f.kind !== 'roof') return;
     for (const p of f.rings[0]) {
-      const hidden = faces.slice(i + 1).some((g) => !isDecal(g.kind) && g.kind !== 'frame' && pointInPolygon(p, g.rings[0], -0.01));
+      const hidden = faces.slice(i + 1).some((g) => !isDecal(g.kind) && g.kind !== 'frame' && g.kind !== 'edge' && pointInPolygon(p, g.rings[0], -0.01));
       if (!hidden) heights.add(Math.round(p.y * 1e4) / 1e4);
     }
   });
@@ -429,7 +434,8 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
     if (rank(h) === 0 || hs.every((k) => Math.abs(k - h) >= 0.29)) hs.push(h);
   }
   hs.sort((a, b) => a - b);
-  const xr = roofMax;
+  // Heights beside the wall; a small eaves overhang stays clear of the dimension lines (6 mm off).
+  const xr = roofMax - maxX <= 0.5 ? maxX : roofMax;
   if (hs.length > 2) {
     for (let i = 0; i + 1 < hs.length; i++) {
       prims.push({ t: 'dim', a: { x: xr, y: hs[i] }, b: { x: xr, y: hs[i + 1] }, off: -6, text: mm(hs[i + 1] - hs[i]) });
@@ -438,8 +444,8 @@ export function elevationView(levels: Level[], side: Side, opts: { chains?: bool
   prims.push({ t: 'dim', a: { x: xr, y: 0 }, b: { x: xr, y: top }, off: hs.length > 2 ? -13 : -6, text: mm(top) });
   // Level marks on the left, as on a building drawing: "+2950".
   for (const h of hs) {
-    prims.push({ t: 'text', at: { x: roofMin - 0.8, y: h }, text: h === 0 ? '±0' : `+${mm(h)}`, cls: 'label-sub', size: 2.4, anchor: 'end', dx: -1.2 });
-    prims.push({ t: 'line', pts: [{ x: roofMin - 0.8, y: h }, { x: roofMin - 0.35, y: h }], cls: 'sym-thin' });
+    prims.push({ t: 'text', at: { x: roofMin - 0.5, y: h }, text: h === 0 ? '±0' : `+${mm(h)}`, cls: 'label-sub', size: 2.4, anchor: 'end', dx: -1.2 });
+    prims.push({ t: 'line', pts: [{ x: roofMin - 0.5, y: h }, { x: roofMin - 0.15, y: h }], cls: 'sym-thin' });
   }
   // Materials, under the dimensions.
   materialNotes(levels).forEach((text, i) => {

@@ -141,8 +141,10 @@ export function computePlattegrond(item: PlattegrondItem, items: Item[], seen: S
         ridge: entry.ridge,
         flip: entry.flip,
         plateHeight,
-        overhang: lengthOr(dak.overhang, 'Overstek goot', 0) ?? 0,
-        gableOverhang: lengthOr(dak.gableOverhang, 'Overstek kopgevels', 0) ?? 0,
+        overhang: section.overhangLeft,
+        overhangRight: section.overhangRight,
+        gableOverhang: lengthOr(dak.gableOverhang, 'Overstek kopgevel', 0) ?? 0,
+        gableOverhangEnd: lengthOr(dak.gableOverhangEnd, 'Overstek andere kopgevel', null),
         length: lengthOr(dak.length, 'Daklengte', null),
         rooms: entry.rooms,
         dormers: entry.dormers.flatMap((d, i) => {

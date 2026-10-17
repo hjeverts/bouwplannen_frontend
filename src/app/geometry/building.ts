@@ -671,8 +671,11 @@ export interface Camera {
 }
 
 export interface Projected {
-  /** 'frame': the frame around a window or door, drawn under the glass or the door leaf. */
-  kind: FaceKind | Decal['kind'] | 'frame';
+  /**
+   * 'frame': the frame around a window or door, drawn under the glass or the door leaf.
+   * 'edge': a roof plane seen exactly side-on (in an elevation): drawn as a line, so its overhang shows.
+   */
+  kind: FaceKind | Decal['kind'] | 'frame' | 'edge';
   /** Screen coordinates in metres (x right, y up). */
   rings: Point[][];
   /** 0..1, how much the face is turned towards the light. */
@@ -727,7 +730,10 @@ const FRAME = 0.06;
 export function project(faces: Face[], cam: Camera, opts: { light?: boolean } = {}): Projected[] {
   const view = viewDirection(cam);
   const proj = projector(cam);
-  const visible = faces.filter((f) => f.normal.x * view.x + f.normal.y * view.y + f.normal.z * view.z > 1e-6);
+  const dotView = (f: Face) => f.normal.x * view.x + f.normal.y * view.y + f.normal.z * view.z;
+  // Roof planes seen side-on stay in, as a line: in a side elevation they show the overhang.
+  const edgeOn = (f: Face) => f.kind === 'roof' && Math.abs(dotView(f)) <= 1e-6;
+  const visible = faces.filter((f) => dotView(f) > 1e-6 || edgeOn(f));
   const centre = (f: Face) => f.pts.reduce((s, p) => s + proj(p).depth, 0) / f.pts.length;
   // A dormer goes right after its roof plane (slightly nearer), whatever its own centre is.
   const depth = (f: Face) => (f.host ? centre(f.host) - 1e-3 - (f.kind === 'flat' ? 1e-4 : 0) : centre(f));
@@ -742,6 +748,10 @@ export function project(faces: Face[], cam: Camera, opts: { light?: boolean } = 
       const q = proj(p);
       return { x: q.x, y: q.y };
     };
+    if (edgeOn(f)) {
+      out.push({ kind: 'edge', rings: [f.pts.map(to2)], light, level: f.level });
+      continue;
+    }
     const face: Projected = { kind: f.kind, rings: [f.pts, ...f.holes].map((r) => r.map(to2)), light, level: f.level };
     if (f.finish) {
       face.colour = f.finish.colour;

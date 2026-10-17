@@ -382,8 +382,10 @@ export interface RoofInput {
   rafterRight?: number | null;
   /** Horizontal distance from the left wall to the ridge (zadeldak). */
   ridgeOffset?: number | null;
-  /** Horizontal overhang beyond the wall, measured level. */
+  /** Horizontal overhang beyond the wall, measured level (left, or both sides). */
   overhang?: number | null;
+  /** Overhang on the right when it differs from the left (0 = none); absent = same as the left. */
+  overhangRight?: number | null;
 }
 
 export interface RoofSide {
@@ -424,6 +426,9 @@ export interface RoofResult {
   gableArea: number;
   /** Outline of the gable end for drawing. */
   outline: Point[];
+  /** Horizontal overhang past the left and the right wall. */
+  overhangLeft: number;
+  overhangRight: number;
 }
 
 function side(run: number, rise: number, overhang: number): RoofSide {
@@ -446,8 +451,7 @@ function requirePitch(p: number, label: string): void {
 export function roofSection(input: RoofInput): RoofResult {
   const span = input.span;
   requirePositive(span, 'De overspanning');
-  const overhang = has(input.overhang) ? input.overhang : 0;
-  if (overhang < 0) throw new GeometryError('De overstek kan niet negatief zijn.');
+  const [oL, oR] = overhangs(input.overhang, input.overhangRight);
   const fromFloor = has(input.wallLeft) || has(input.wallRight);
   const hL = has(input.wallLeft) ? input.wallLeft : has(input.wallRight) ? input.wallRight : 0;
   const hR = has(input.wallRight) ? input.wallRight : hL;
@@ -455,7 +459,16 @@ export function roofSection(input: RoofInput): RoofResult {
     requirePositive(hL, 'De muurhoogte links');
     requirePositive(hR, 'De muurhoogte rechts');
   }
-  return input.type === 'lessenaarsdak' ? leanTo(input, span, hL, hR, overhang, fromFloor) : gable(input, span, hL, hR, overhang, fromFloor);
+  const r = input.type === 'lessenaarsdak' ? leanTo(input, span, hL, hR, oL, oR, fromFloor) : gable(input, span, hL, hR, oL, oR, fromFloor);
+  return { ...r, overhangLeft: oL, overhangRight: oR };
+}
+
+/** Left and right overhang; the right one defaults to the left. */
+function overhangs(left: number | null | undefined, right: number | null | undefined): [number, number] {
+  const oL = has(left) ? left : 0;
+  const oR = has(right) ? right : oL;
+  if (oL < 0 || oR < 0) throw new GeometryError('De overstek kan niet negatief zijn.');
+  return [oL, oR];
 }
 
 function finish(
@@ -469,7 +482,7 @@ function finish(
   fromFloor: boolean,
   ridgeAssumedCentre: boolean,
   top: Point[],
-): RoofResult {
+): Omit<RoofResult, 'overhangLeft' | 'overhangRight'> {
   const outline = fromFloor ? [{ x: 0, y: 0 }, ...top, { x: span, y: 0 }] : top;
   return {
     type,
@@ -490,7 +503,7 @@ function finish(
 }
 
 /** Lean-to: one slope from the left wall plate up (or down) to the right wall. */
-function leanTo(input: RoofInput, span: number, hL: number, hR: number, overhang: number, fromFloor: boolean): RoofResult {
+function leanTo(input: RoofInput, span: number, hL: number, hR: number, oL: number, oR: number, fromFloor: boolean) {
   const values = [input.rise, input.pitch, input.rafter].filter(has).length;
   let diff: number;
   if (fromFloor && Math.abs(hR - hL) > 1e-9) {
@@ -517,14 +530,15 @@ function leanTo(input: RoofInput, span: number, hL: number, hR: number, overhang
   const rightPt = { x: span, y: rightHigh ? low + diff : low };
   const top = fromFloor ? [leftPt, rightPt] : [leftPt, rightPt, { x: span, y: 0 }];
   const ridge = rightHigh ? rightPt : leftPt;
-  return finish('lessenaarsdak', span, ridge, side(span, diff, overhang), null, leftPt.y, rightPt.y, fromFloor, false, top);
+  // One slope: the rafter runs out past both walls.
+  return finish('lessenaarsdak', span, ridge, side(span, diff, oL + oR), null, leftPt.y, rightPt.y, fromFloor, false, top);
 }
 
 /**
  * Gable roof with the ridge anywhere between the walls and walls of different height.
  * Two values fix it: any two of left/right pitch, left/right rafter, ridge height, ridge offset.
  */
-function gable(input: RoofInput, span: number, hL: number, hR: number, overhang: number, fromFloor: boolean): RoofResult {
+function gable(input: RoofInput, span: number, hL: number, hR: number, oL: number, oR: number, fromFloor: boolean) {
   const { pitch: pL, pitchRight: pR, rafter: rL, rafterRight: rR, rise: H } = input;
   let xr = has(input.ridgeOffset) ? input.ridgeOffset : null;
   if (has(pL)) requirePitch(pL, 'De dakhelling links');
@@ -593,8 +607,8 @@ function gable(input: RoofInput, span: number, hL: number, hR: number, overhang:
   }
 
   if (ridgeHeight <= hL + 1e-9 || ridgeHeight <= hR + 1e-9) throw new GeometryError('De nok moet hoger liggen dan beide muurplaten.');
-  const left = side(xr, ridgeHeight - hL, overhang);
-  const right = side(span - xr, ridgeHeight - hR, overhang);
+  const left = side(xr, ridgeHeight - hL, oL);
+  const right = side(span - xr, ridgeHeight - hR, oR);
   const ridge = { x: xr, y: ridgeHeight };
   return finish('zadeldak', span, ridge, left, right, hL, hR, fromFloor, assumedCentre, [{ x: 0, y: hL }, ridge, { x: span, y: hR }]);
 }
@@ -648,13 +662,14 @@ export interface MansardInput {
   /** Flatter upper part: exactly one of rise (ridge above knee), pitch, length. Its run follows from the span. */
   upper: Omit<SlopeInput, 'run'>;
   overhang?: number | null;
+  /** Absent: same as `overhang`. */
+  overhangRight?: number | null;
 }
 
 /** Symmetric mansard roof (mansardekap): a steep lower slope and a flatter upper slope on each side. */
 export function mansardSection(input: MansardInput): RoofResult {
   requirePositive(input.span, 'De overspanning');
-  const overhang = has(input.overhang) ? input.overhang : 0;
-  if (overhang < 0) throw new GeometryError('De overstek kan niet negatief zijn.');
+  const [oL, oR] = overhangs(input.overhang, input.overhangRight);
 
   const lower = solveSlope(input.lower, 'Onderdak');
   const half = input.span / 2;
@@ -677,13 +692,12 @@ export function mansardSection(input: MansardInput): RoofResult {
     { x: input.span - lower.run, y: lower.rise },
     { x: input.span, y: 0 },
   ];
-  const lowerSide = side(lower.run, lower.rise, overhang);
   return {
     type: 'mansardekap',
     span: input.span,
     rise,
-    left: lowerSide,
-    right: lowerSide,
+    left: side(lower.run, lower.rise, oL),
+    right: side(lower.run, lower.rise, oR),
     upper: side(upper.run, upper.rise, 0),
     knee,
     ridge: outline[2],
@@ -693,6 +707,8 @@ export function mansardSection(input: MansardInput): RoofResult {
     ridgeAssumedCentre: false,
     gableArea: Math.abs(signedArea(outline)),
     outline,
+    overhangLeft: oL,
+    overhangRight: oR,
   };
 }
 

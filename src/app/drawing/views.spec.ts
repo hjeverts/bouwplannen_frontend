@@ -990,3 +990,25 @@ describe('cladding, frame colour and roof covering', () => {
     expect(materialNotes(computeBuilding(house.items[0] as PlattegrondItem, house.items))).toEqual([]);
   });
 });
+
+describe('overhang per side in the elevations', () => {
+  const leanToEdge = (patch: object) => {
+    const items = exampleHouse().items.map((i) => (i.id === 'vw-kap-uitbouw' ? { ...i, ...patch } : i));
+    const levels = computeBuilding(items[1] as PlattegrondItem, items);
+    const proj = project(exteriorFaces(levels), { azimuth: -90, elevation: 0 });
+    // Seen from the right, the lean-to of the ground floor is side-on: one edge line.
+    const edges = proj.filter((f) => f.kind === 'edge' && f.level === 0);
+    expect(edges.length).toBe(1);
+    const xs = edges[0].rings[0].map((p) => p.x);
+    return { min: Math.min(...xs), max: Math.max(...xs), view: elevationView(levels, 'rechts') };
+  };
+
+  it('shows the roof edge side-on, with or without the overhang against the house', () => {
+    const both = leanToEdge({});
+    const none = leanToEdge({ overhangRight: '0' });
+    // The high side against the house loses its 0,30 m overhang; the low side keeps it.
+    expect(none.min - both.min).toBeCloseTo(0.3, 6);
+    expect(none.max).toBeCloseTo(both.max, 6);
+    expect(renderFitted(both.view, 800, 600)).toContain('class="bp-roof-edge"');
+  });
+});

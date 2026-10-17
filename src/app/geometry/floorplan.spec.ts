@@ -187,6 +187,27 @@ describe('buildFloorPlan', () => {
     expect(fp.warnings).toEqual([]);
   });
 
+  it('gives each eaves and each gable end its own overhang, also flipped', () => {
+    const section = roofSection({ type: 'lessenaarsdak', span: 4.6, pitch: 45 });
+    const place = (flip: boolean) =>
+      buildFloorPlan(
+        plan([living, kitchen], { roof: { section, ridge: 'x', flip, plateHeight: 2.8, overhang: 0.3, overhangRight: 0, gableOverhang: 0.2, gableOverhangEnd: 0, length: null } }),
+      ).roof!;
+    const roof = place(false);
+    // Section left (the low side) at the front: overhang there, none at the high side at the back.
+    close(roof.eaves[0].c, -0.3);
+    close(roof.eaves[0].z, 2.5);
+    close(roof.eaves[1].c, 4.6);
+    close(roof.eaves[1].z, 2.8 + 4.6);
+    close(roof.from, -0.2);
+    close(roof.to, 8.7);
+    // Flipped: the low side and its overhang go to the back.
+    const flipped = place(true);
+    close(flipped.eaves[0].c, 0);
+    close(flipped.eaves[1].c, 4.9);
+    close(flipped.eaves[1].z, 2.5);
+  });
+
   it('flips an off-centre roof and warns when the span does not fit', () => {
     const section = roofSection({ type: 'zadeldak', span: 4, wallLeft: 3, wallRight: 2.4, pitch: 45, pitchRight: 30 });
     const fp = buildFloorPlan(

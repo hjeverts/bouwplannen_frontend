@@ -18,7 +18,9 @@ type Field =
   | 'wallLeft'
   | 'wallRight'
   | 'overhang'
+  | 'overhangRight'
   | 'gableOverhang'
+  | 'gableOverhangEnd'
   | 'length'
   | 'lowerRun'
   | 'lowerRise'
@@ -120,9 +122,31 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
 
     <h3 class="group-title">Overstek en lengte</h3>
     <div class="fields fields--3">
-      <app-measure-field tag="o" label="Overstek goot" [value]="item().overhang" (valueChange)="set('overhang', $event)" hint="Horizontaal, maakt de spar langer" />
-      <app-measure-field tag="o₂" label="Overstek kopgevels" [value]="v('gableOverhang')" (valueChange)="set('gableOverhang', $event)" hint="Per gevel, maakt gordingen langer" />
+      <app-measure-field tag="o" [label]="eavesLabel('links')" [value]="item().overhang" (valueChange)="set('overhang', $event)" hint="Horizontaal, maakt de spar langer" />
+      <app-measure-field
+        tag="o"
+        [label]="eavesLabel('rechts')"
+        [value]="v('overhangRight')"
+        (valueChange)="set('overhangRight', $event)"
+        [placeholder]="item().overhang"
+        hint="Leeg = als links; 0 = geen overstek"
+      />
       <app-measure-field tag="D" label="Daklengte" [value]="item().length" (valueChange)="set('length', $event)" hint="Gevel tot gevel, zonder overstek" />
+      <app-measure-field
+        tag="o₂"
+        label="Overstek kopgevel links / voor"
+        [value]="v('gableOverhang')"
+        (valueChange)="set('gableOverhang', $event)"
+        hint="Links bij een nok evenwijdig aan de voorgevel, voor bij een nok van voor naar achter"
+      />
+      <app-measure-field
+        tag="o₂"
+        label="Overstek kopgevel rechts / achter"
+        [value]="v('gableOverhangEnd')"
+        (valueChange)="set('gableOverhangEnd', $event)"
+        [placeholder]="v('gableOverhang')"
+        hint="Leeg = als de andere kopgevel; 0 = geen overstek"
+      />
     </div>
     <div class="split">
       <app-results [rows]="rows()" [message]="tooMany() ? null : message()" [state]="outcome().status" />
@@ -167,6 +191,15 @@ export class DakEditor {
         return false;
     }
   });
+
+  /** "Overstek goot links", for a lean-to with which side is low or high. */
+  protected eavesLabel(side: 'links' | 'rechts'): string {
+    if (this.type() !== 'lessenaarsdak') return `Overstek goot ${side}`;
+    const r = this.roof();
+    if (!r) return `Overstek ${side}`;
+    const leftLow = r.plateLeft <= r.plateRight;
+    return `Overstek ${side} (${(side === 'links') === leftLow ? 'lage' : 'hoge'} kant)`;
+  }
 
   /** Current text of a field; fields missing on older saved items read as empty. */
   protected v(field: Field): string {
@@ -239,7 +272,9 @@ export class DakEditor {
         { label: 'Breedte op kniklijn', value: formatLength(roof.span - 2 * roof.knee.x) },
         { label: 'Helling onderdak', value: `${formatAngle(roof.left.pitch, 2)} · ${pct(roof.left.pitchPercent)}` },
         { label: 'Spar onderdak', value: formatLength(roof.left.rafter) },
-        { label: 'Spar onderdak met overstek', value: formatLength(roof.left.rafterWithOverhang) },
+        roof.overhangLeft === roof.overhangRight
+          ? { label: 'Spar onderdak met overstek', value: formatLength(roof.left.rafterWithOverhang) }
+          : { label: 'Spar onderdak met overstek links · rechts', value: `${formatLength(roof.left.rafterWithOverhang)} · ${formatLength(roof.right!.rafterWithOverhang)}` },
         { label: 'Helling bovendak', value: `${formatAngle(roof.upper.pitch, 2)} · ${pct(roof.upper.pitchPercent)}` },
         { label: 'Spar bovendak', value: formatLength(roof.upper.rafter) },
         { label: 'Knikhoek', value: formatAngle(180 - roof.left.pitch + roof.upper.pitch, 2) },
@@ -253,7 +288,7 @@ export class DakEditor {
         { label: 'Helling in procent', value: pct(roof.left.pitchPercent) },
         { label: 'Hoogteverschil', value: formatLength(roof.left.rise) },
         { label: 'Sparlengte', value: formatLength(roof.left.rafter) },
-        { label: 'Spar met overstek', value: formatLength(roof.left.rafterWithOverhang) },
+        { label: 'Spar met overstek (beide kanten)', value: formatLength(roof.left.rafterWithOverhang) },
         ...tail,
       ];
     }
@@ -346,23 +381,19 @@ function overhangs(roof: RoofResult): Segment[] {
   };
   const plateL = { x: 0, y: roof.plateLeft };
   const plateR = { x: roof.span, y: roof.plateRight };
-  const extra = roof.left.rafterWithOverhang - roof.left.rafter;
+  /** Along a slope of `pitch` degrees, for a level overhang `o`. */
+  const along = (o: number, pitch: number) => o / Math.cos((pitch * Math.PI) / 180);
   if (roof.type === 'lessenaarsdak') {
-    // Both ends of the single slope get the overhang.
-    const a = ext(plateL, plateR, extra);
-    const b = ext(plateR, plateL, extra);
-    if (roof.fromFloor) {
-      if (a) out.push(a);
-      if (b) out.push(b);
-    } else if (a) out.push(a);
+    // The single slope runs out past both walls, each by its own overhang.
+    for (const s of [ext(plateL, plateR, along(roof.overhangLeft, roof.left.pitch)), ext(plateR, plateL, along(roof.overhangRight, roof.left.pitch))]) if (s) out.push(s);
     return out;
   }
   const firstUp = roof.knee ?? roof.ridge;
-  const l = ext(plateL, firstUp, extra);
+  const l = ext(plateL, firstUp, along(roof.overhangLeft, roof.left.pitch));
   if (l) out.push(l);
   if (roof.right) {
     const kneeR = roof.knee ? { x: roof.span - roof.knee.x, y: roof.knee.y } : roof.ridge;
-    const r = ext(plateR, kneeR, roof.right.rafterWithOverhang - roof.right.rafter);
+    const r = ext(plateR, kneeR, along(roof.overhangRight, roof.right.pitch));
     if (r) out.push(r);
   }
   return out;

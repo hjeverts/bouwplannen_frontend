@@ -260,6 +260,7 @@ export function drawingStyle(k: number): string {
 .bp .bp-f-glass{fill:#8fb3c9;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
 .bp .bp-f-roll{fill:#7c858a;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
 .bp .bp-slat{fill:none;stroke:#e6e9e4;stroke-opacity:.7;stroke-width:${w(0.1)}}
+.bp .bp-roof-edge{fill:none;stroke:var(--ink,#1d2321);stroke-width:${w(0.5)};stroke-linejoin:round}
 .bp .bp-pattern{fill:none;stroke:currentColor;stroke-width:${w(0.09)};stroke-linecap:butt}
 .bp .bp-f-door{fill:#7a5a40;stroke:var(--ink,#1d2321);stroke-width:${w(0.15)}}
 .bp .bp-dim-line{fill:none;stroke:var(--dim,#1f5f8b);stroke-width:${w(0.15)}}

@@ -170,7 +170,7 @@ function computeRoom(item: VormItem, shape: PolygonAnalysis): Pick<VormResult, '
 
 export interface DakResult {
   roof: RoofResult;
-  /** Length of purlins, ridge and eaves: roof length plus the overhang at both gable ends. */
+  /** Length of purlins, ridge and eaves: roof length plus the overhangs at the gable ends. */
   purlinLength: number | null;
   /** Roof surface per slope, including both overhangs, when the roof length is known. */
   surfaceLeft: number | null;
@@ -185,11 +185,13 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
     const pitch = ang(item.pitch, mansard ? 'Helling bovendak' : 'Dakhelling');
     const rafter = len(item.rafter, mansard ? 'Lengte bovendak' : 'Sparlengte');
     const overhang = len(item.overhang, 'Overstek goot');
+    const overhangRight = len(item.overhangRight ?? '', 'Overstek goot rechts');
     const length = len(item.length, 'Daklengte');
-    const gableOverhang = len(item.gableOverhang ?? '', 'Overstek kopgevels') ?? 0;
-    if (gableOverhang < 0) return error('De overstek bij de kopgevels kan niet negatief zijn.');
+    const gableOverhang = len(item.gableOverhang ?? '', 'Overstek kopgevel') ?? 0;
+    const gableOverhangEnd = len(item.gableOverhangEnd ?? '', 'Overstek andere kopgevel') ?? gableOverhang;
+    if (gableOverhang < 0 || gableOverhangEnd < 0) return error('De overstek bij de kopgevels kan niet negatief zijn.');
     if (span === null) return incomplete('Vul de overspanning in.');
-    const purlinLength = length === null ? null : length + 2 * gableOverhang;
+    const purlinLength = length === null ? null : length + gableOverhang + gableOverhangEnd;
 
     if (mansard) {
       const lower = {
@@ -201,9 +203,9 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
       const lowerGiven = Object.values(lower).filter((v) => v !== null).length;
       if (lowerGiven < 2) return incomplete(`Vul voor het onderdak nog ${2 - lowerGiven} waarde${lowerGiven === 1 ? '' : 'n'} in.`);
       if ([rise, pitch, rafter].every((v) => v === null)) return incomplete('Vul voor het bovendak de hoogte, helling of lengte in.');
-      const roof = mansardSection({ span, lower, upper: { rise, pitch, length: rafter }, overhang });
-      const perSide = purlinLength === null ? null : (roof.left.rafterWithOverhang + roof.upper!.rafter) * purlinLength;
-      return { status: 'ok', value: { roof, purlinLength, surfaceLeft: perSide, surfaceRight: perSide } };
+      const roof = mansardSection({ span, lower, upper: { rise, pitch, length: rafter }, overhang, overhangRight });
+      const perSide = (s: { rafterWithOverhang: number }) => (purlinLength === null ? null : (s.rafterWithOverhang + roof.upper!.rafter) * purlinLength);
+      return { status: 'ok', value: { roof, purlinLength, surfaceLeft: perSide(roof.left), surfaceRight: perSide(roof.right!) } };
     }
 
     const isGable = item.roofType === 'zadeldak';
@@ -225,7 +227,7 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
     if (isGable && given === 1 && wallsDiffer && values.ridgeOffset === null) {
       return incomplete('De muren verschillen in hoogte: vul nog een tweede waarde in, zoals de helling aan de andere kant.');
     }
-    const roof = roofSection({ type: item.roofType as 'zadeldak' | 'lessenaarsdak', span, wallLeft, wallRight, overhang, ...values });
+    const roof = roofSection({ type: item.roofType as 'zadeldak' | 'lessenaarsdak', span, wallLeft, wallRight, overhang, overhangRight, ...values });
     return {
       status: 'ok',
       value: {

@@ -53,8 +53,12 @@ export interface PlanRoofInput {
   flip: boolean;
   /** Height of the wall plates above the floor, for roofs measured without wall heights. */
   plateHeight: number;
+  /** Overhang at the eaves on the left of the section (and on the right unless `overhangRight` is given). */
   overhang: number;
+  overhangRight?: number | null;
+  /** Overhang past the gable at the start of the ridge (left or front), and at its end unless `gableOverhangEnd` is given. */
   gableOverhang: number;
+  gableOverhangEnd?: number | null;
   /** Roof length as entered on the roof, to compare with the building. */
   length: number | null;
   /** Ids of the rooms under this roof; empty = the whole floor. */
@@ -184,11 +188,12 @@ export function placeRoof(input: PlanRoofInput, region: Region, rooms: number[],
     const step = Math.sign(dc) * by;
     return { c: p.c + step, z: p.z + slope * step };
   };
-  const o = Math.max(0, input.overhang);
-  const eaves =
-    o > 0 && profile.length >= 2
-      ? [extend(profile[0], profile[1], o), ...profile.slice(1, -1), extend(profile[profile.length - 1], profile[profile.length - 2], o)]
-      : profile;
+  const oLeft = Math.max(0, input.overhang);
+  const oRight = Math.max(0, input.overhangRight ?? oLeft);
+  // Flipped, the section's right side comes first across the ridge.
+  const [oFirst, oLast] = flip ? [oRight, oLeft] : [oLeft, oRight];
+  const n = profile.length;
+  const eaves = n >= 2 ? [extend(profile[0], profile[1], oFirst), ...profile.slice(1, -1), extend(profile[n - 1], profile[n - 2], oLast)] : profile;
 
   const heightAt = (c: number): number => {
     if (c <= profile[0].c) return profile[0].z;
@@ -296,6 +301,7 @@ export function placeRoof(input: PlanRoofInput, region: Region, rooms: number[],
   }
 
   const g = Math.max(0, input.gableOverhang);
+  const gEnd = Math.max(0, input.gableOverhangEnd ?? g);
   return {
     key: input.key ?? '',
     name,
@@ -306,7 +312,7 @@ export function placeRoof(input: PlanRoofInput, region: Region, rooms: number[],
     eaves,
     planes,
     from: vMin - g,
-    to: vMax + g,
+    to: vMax + gEnd,
     vMin,
     vMax,
     ridgeHeight: Math.max(...profile.map((p) => p.z)),

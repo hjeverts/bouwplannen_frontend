@@ -90,10 +90,14 @@ export interface DakItem extends BaseItem {
   /** Wall-plate heights from the floor, when the walls differ. */
   wallLeft?: string;
   wallRight?: string;
-  /** Horizontal overhang at the eaves (lengthens the rafters). */
+  /** Horizontal overhang at the eaves (lengthens the rafters): left side, and the right unless `overhangRight` is filled in. */
   overhang: string;
-  /** Overhang past each gable end (lengthens purlins, ridge and the roof surface). */
+  /** Overhang at the right eaves when it differs ('0' = none); empty = same as `overhang`. */
+  overhangRight?: string;
+  /** Overhang past the gable end at the start of the ridge (left, or front), and at its end unless `gableOverhangEnd` is filled in. */
   gableOverhang?: string;
+  /** Overhang past the other gable end ('0' = none); empty = same as `gableOverhang`. */
+  gableOverhangEnd?: string;
   /** Length of the roof along the ridge, for roof surface. */
   length: string;
 }

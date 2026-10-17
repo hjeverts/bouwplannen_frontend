@@ -85,6 +85,45 @@ describe('compute', () => {
     expect(computeDak({ ...item, gableOverhang: '-1' }).status).toBe('error');
   });
 
+  it('overhang per side: none on one eaves or one gable end', () => {
+    const base = { ...(createItem('dak') as DakItem), span: '8', rise: '3', overhang: '0,4', length: '10', gableOverhang: '0,3' };
+    const r = computeDak({ ...base, overhangRight: '0', gableOverhangEnd: '0' });
+    expect(r.status).toBe('ok');
+    if (r.status !== 'ok') return;
+    expect(r.value.roof.left.rafterWithOverhang).toBeCloseTo(5.5, 9);
+    expect(r.value.roof.right!.rafterWithOverhang).toBeCloseTo(5, 9);
+    // One gable end without overhang: purlins 10 + 0,3.
+    expect(r.value.purlinLength).toBeCloseTo(10.3, 9);
+    expect(r.value.surfaceRight).toBeCloseTo(5 * 10.3, 9);
+    // Empty: the same as the other side, as before.
+    const same = computeDak({ ...base, overhangRight: '', gableOverhangEnd: '' });
+    if (same.status !== 'ok') throw new Error(same.message);
+    expect(same.value.roof.right!.rafterWithOverhang).toBeCloseTo(5.5, 9);
+    expect(same.value.purlinLength).toBeCloseTo(10.6, 9);
+    expect(computeDak({ ...base, overhangRight: '-0,1' }).status).toBe('error');
+    expect(computeDak({ ...base, gableOverhangEnd: '-0,1' }).status).toBe('error');
+  });
+
+  it('lessenaarsdak: the rafter runs out past both walls', () => {
+    // 4 m run, 3 m rise: rafter 5, slope factor 5/4.
+    const item = { ...(createItem('dak') as DakItem), roofType: 'lessenaarsdak' as const, span: '4', rise: '3', overhang: '0,4' };
+    const both = computeDak(item);
+    if (both.status !== 'ok') throw new Error(both.message);
+    expect(both.value.roof.left.rafterWithOverhang).toBeCloseTo(5 + 0.8 * 1.25, 9);
+    const one = computeDak({ ...item, overhangRight: '0' });
+    if (one.status !== 'ok') throw new Error(one.message);
+    expect(one.value.roof.left.rafterWithOverhang).toBeCloseTo(5 + 0.4 * 1.25, 9);
+    expect([one.value.roof.overhangLeft, one.value.roof.overhangRight]).toEqual([0.4, 0]);
+  });
+
+  it('mansardekap: its own overhang on each side', () => {
+    const item = { ...(createItem('dak') as DakItem), roofType: 'mansardekap' as const, span: '8', lowerRun: '1', lowerRise: '2,5', rise: '1,5', overhang: '0,3', overhangRight: '0' };
+    const r = computeDak(item);
+    if (r.status !== 'ok') throw new Error(r.message);
+    expect(r.value.roof.left.rafterWithOverhang).toBeGreaterThan(r.value.roof.left.rafter);
+    expect(r.value.roof.right!.rafterWithOverhang).toBeCloseTo(r.value.roof.right!.rafter, 9);
+  });
+
   it('zadeldak: left and right pitch with different wall heights', () => {
     const item = { ...(createItem('dak') as DakItem), span: '6', wallLeft: '3', wallRight: '2,4', pitch: '40', pitchRight: '25' };
     const r = computeDak(item);

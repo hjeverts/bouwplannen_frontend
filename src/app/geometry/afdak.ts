@@ -212,6 +212,8 @@ export interface AfdakRoofInput {
    * small level seat cut, `hangerSeat` long).
    */
   backHanger?: 'schroef' | 'hellend' | 'vlak';
+  /** 'tegen' without a beam: the rafters end against the wall itself, in hangers fixed to it; the back height is the top of the rafter at the wall. */
+  backNoBeam?: boolean;
   hangerSeat?: number;
   /** Height of the hanger (plumb); null = 3/4 of the rafter. */
   hangerHeight?: number | null;
@@ -258,6 +260,8 @@ export interface Seat {
   floor: number;
   /** Against the beam in a joist hanger. */
   hanger?: Hanger;
+  /** No beam: the rafter ends against the wall itself (s0 = s1 = 0). */
+  wall?: boolean;
 }
 
 export interface Rafter {
@@ -335,11 +339,12 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
   };
   const [f0, f1] = onPosts(plan.frontRow, roof.beamWidth);
   const [b0, b1] = plan.backRow === null ? [0, roof.backWidth] : onPosts(plan.backRow, roof.backWidth);
-  if (!(roof.backWidth > 0)) throw new RangeError(plan.attached ? 'Vul de breedte van de ligger tegen het gebouw in.' : 'Vul de breedte van de achterligger in.');
+  const noBeam = plan.attached && roof.backFix === 'tegen' && !!roof.backNoBeam;
+  if (!(roof.backWidth > 0) && !noBeam) throw new RangeError(plan.attached ? 'Vul de breedte van de ligger tegen het gebouw in.' : 'Vul de breedte van de achterligger in.');
 
   const against = plan.attached && roof.backFix === 'tegen';
   const through = against && !!roof.backThrough;
-  const offset = roof.backOffset ?? 0;
+  const offset = noBeam ? 0 : (roof.backOffset ?? 0);
   const fPocket = Math.max(0, roof.frontPocket ?? 0);
   const bPocket = against ? 0 : Math.max(0, roof.backPocket ?? 0);
   if (fPocket >= roof.beamHeight) throw new RangeError('De inkeping in de voorligger is dieper dan de ligger hoog is.');
@@ -394,7 +399,7 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
     ? through
       ? // A nose over the beam to the wall: the seat on the beam top reaches the rafter's end.
         { name: 'Ligger tegen gebouw', s0: b0, s1: b1, z: zb, length: b1 - b0, plumb: endCut, depth: endCut * Math.cos(a), left: offset * Math.cos(a), limited: false, against: true, through: true, pocket: 0, floor: zb }
-      : { name: 'Ligger tegen gebouw', s0: b0, s1: b1, z: zb, length: 0, plumb: h / Math.cos(a), depth: 0, left: h, limited: false, against: true, pocket: 0, floor: zb }
+      : { ...(noBeam ? { wall: true } : {}), name: noBeam ? 'Muur' : 'Ligger tegen gebouw', s0: b0, s1: b1, z: zb, length: 0, plumb: h / Math.cos(a), depth: 0, left: h, limited: false, against: true, pocket: 0, floor: zb }
     : backSeat(a, zb);
   // The underside passes the front heel its plumb cut below the seat (the beam top, or its pocket).
   const undersideAt = (s: number) => front.floor - front.plumb - Math.tan(a) * (s - f1);
@@ -406,7 +411,7 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
     // Level seat: from the end's bottom corner level into the rafter, then a heel down to its underside.
     back.hanger = { kind, seat: L, heel: kind === 'vlak' ? L * Math.tan(a) : 0, bottom: undersideAt(b1), height: H };
     const above = undersideAt(b1) + H - zb;
-    if (above > 0.001) warnings.push(`Balkdrager: steekt ${Math.round(above * 1000)} mm boven de ligger uit (drager ${Math.round(H * 1000)} mm hoog). Kies een lagere balkdrager of zet de spoor lager.`);
+    if (!noBeam && above > 0.001) warnings.push(`Balkdrager: steekt ${Math.round(above * 1000)} mm boven de ligger uit (drager ${Math.round(H * 1000)} mm hoog). Kies een lagere balkdrager of zet de spoor lager.`);
     if (H < 0.6 * h - 1e-9) warnings.push(`Balkdrager: ${Math.round(H * 1000)} mm hoog is minder dan 60% van de spoor (${Math.round(h * 1000)} mm); kies er een die hoger is.`);
   }
   if (through && offset <= 0.005) warnings.push('Ligger tegen gebouw: zet de bovenkant van de spoor boven de ligger (bijvoorbeeld 30 mm), anders is er geen neus die tot de muur doorloopt.');

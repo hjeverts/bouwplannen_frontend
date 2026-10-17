@@ -90,30 +90,32 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
         <app-measure-field label="Dakhelling" kind="angle" [value]="rf('pitch')" (valueChange)="setRoof('pitch', $event)" [placeholder]="placeholder('pitch')" />
         <app-measure-field label="Hoogte voorligger" [value]="rf('frontHeight')" (valueChange)="setRoof('frontHeight', $event)" [placeholder]="placeholder('front')" hint="Bovenkant ligger op de staanders, vanaf de vloer" />
         <app-measure-field
-          [label]="item().attached ? 'Hoogte ligger tegen gebouw' : 'Hoogte achterligger'"
+          [label]="wallFix() === 'muur' ? 'Bovenkant spoor tegen muur' : item().attached ? 'Hoogte ligger tegen gebouw' : 'Hoogte achterligger'"
           [value]="rf('backHeight')"
           (valueChange)="setRoof('backHeight', $event)"
           [placeholder]="placeholder('back')"
-          hint="Bovenkant, vanaf de vloer"
+          [hint]="wallFix() === 'muur' ? 'Bovenkant spoor waar hij de muur raakt, vanaf de vloer' : 'Bovenkant, vanaf de vloer'"
         />
         <app-measure-field
           [label]="item().attached ? 'Bovenkant pannen tegen gebouw' : 'Bovenkant pannen achter'"
           [value]="rf('tileTop')"
           (valueChange)="setRoof('tileTop', $event)"
           [placeholder]="placeholder('tiles')"
-          hint="In plaats van de hoogte van de ligger: de app rekent via de dakopbouw terug naar de ligger"
+          [hint]="wallFix() === 'muur' ? 'In plaats van de hoogte achter: de app rekent via de dakopbouw terug' : 'In plaats van de hoogte van de ligger: de app rekent via de dakopbouw terug naar de ligger'"
         />
       </div>
       <div class="fields fields--4">
         <app-measure-field label="Voorligger breed" [value]="rf('beamWidth')" (valueChange)="setRoof('beamWidth', $event)" [placeholder]="item().postDepth || item().postWidth" hint="Voor–achter; leeg = als de staander" />
         <app-measure-field label="Voorligger hoog" [value]="rf('beamHeight')" (valueChange)="setRoof('beamHeight', $event)" />
-        <app-measure-field
-          [label]="item().attached ? 'Ligger tegen gebouw breed' : 'Achterligger breed'"
-          [value]="rf('backWidth')"
-          (valueChange)="setRoof('backWidth', $event)"
-          [placeholder]="item().attached ? '' : item().postDepth || item().postWidth"
-          hint="Voor–achter: waar de spoor op ligt"
-        />
+        @if (wallFix() !== 'muur') {
+          <app-measure-field
+            [label]="item().attached ? 'Ligger tegen gebouw breed' : 'Achterligger breed'"
+            [value]="rf('backWidth')"
+            (valueChange)="setRoof('backWidth', $event)"
+            [placeholder]="item().attached ? '' : item().postDepth || item().postWidth"
+            hint="Voor–achter: waar de spoor op ligt"
+          />
+        }
       </div>
       <div class="segmented segmented--small" role="radiogroup" aria-label="Ligger op de staanders">
         <button type="button" role="radio" [attr.aria-checked]="(item().roof?.beamAlign ?? 'midden') === 'midden'" (click)="setRoof('beamAlign', 'midden')">Ligger midden op de staander</button>
@@ -123,12 +125,21 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
       @if (item().attached) {
         <div class="segmented segmented--small" role="radiogroup" aria-label="Sporen aan de muurkant">
           <button type="button" role="radio" [attr.aria-checked]="(item().roof?.backFix ?? 'op') === 'op'" (click)="setRoof('backFix', 'op')">Spoor op de ligger (keep)</button>
-          <button type="button" role="radio" [attr.aria-checked]="item().roof?.backFix === 'tegen'" (click)="setRoof('backFix', 'tegen')">Spoor tegen de ligger, geschroefd</button>
+          <button type="button" role="radio" [attr.aria-checked]="item().roof?.backFix === 'tegen'" (click)="setRoof('backFix', 'tegen')">Spoor tegen de ligger</button>
+          <button type="button" role="radio" [attr.aria-checked]="item().roof?.backFix === 'muur'" (click)="setRoof('backFix', 'muur')">Geen ligger: balkdragers op de muur</button>
         </div>
-        @if (item().roof?.backFix === 'tegen') {
-          <p class="hint">De spoor eindigt met een loodsnede tegen de voorkant van de ligger. Geen keep aan de muurkant.</p>
-          <div class="segmented segmented--small" role="radiogroup" aria-label="Bevestiging aan de ligger">
-            <button type="button" role="radio" [attr.aria-checked]="hanger() === 'schroef'" (click)="setRoof('backHanger', 'schroef')">Schuin geschroefd</button>
+        @if (wallFix() !== 'op') {
+          <p class="hint">
+            {{
+              wallFix() === 'muur'
+                ? 'Geen ligger aan de muurkant: de spoor eindigt met een loodsnede tegen de muur en hangt in een balkdrager die op de muur zit. De hoogte achter is dan de bovenkant van de spoor tegen de muur.'
+                : 'De spoor eindigt met een loodsnede tegen de voorkant van de ligger. Geen keep aan de muurkant.'
+            }}
+          </p>
+          <div class="segmented segmented--small" role="radiogroup" aria-label="Bevestiging aan de muurkant">
+            @if (wallFix() === 'tegen') {
+              <button type="button" role="radio" [attr.aria-checked]="hanger() === 'schroef'" (click)="setRoof('backHanger', 'schroef')">Schuin geschroefd</button>
+            }
             <button type="button" role="radio" [attr.aria-checked]="hanger() === 'hellend'" (click)="setRoof('backHanger', 'hellend')">Balkdrager, kantelbaar</button>
             <button type="button" role="radio" [attr.aria-checked]="hanger() === 'vlak'" (click)="setRoof('backHanger', 'vlak')">Balkdrager, vlakke zit</button>
           </div>
@@ -151,10 +162,12 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
               <app-measure-field label="Hoogte balkdrager" [value]="rf('hangerHeight')" (valueChange)="setRoof('hangerHeight', $event)" [placeholder]="hangerHeightPlaceholder()" hint="Leeg = 3/4 van de spoorhoogte" />
             </div>
           }
-          <div class="fields fields--3">
-            <app-measure-field label="Bovenkant spoor t.o.v. ligger" [value]="rf('backOffset')" (valueChange)="setRoof('backOffset', $event)" placeholder="0" hint="0 = gelijk met de bovenkant; negatief = lager" />
-            <app-measure-field label="Ligger tegen gebouw hoog" [value]="rf('backBeamHeight')" (valueChange)="setRoof('backBeamHeight', $event)" hint="Om te controleren dat de spoor op de ligger blijft" />
-          </div>
+          @if (wallFix() === 'tegen') {
+            <div class="fields fields--3">
+              <app-measure-field label="Bovenkant spoor t.o.v. ligger" [value]="rf('backOffset')" (valueChange)="setRoof('backOffset', $event)" placeholder="0" hint="0 = gelijk met de bovenkant; negatief = lager" />
+              <app-measure-field label="Ligger tegen gebouw hoog" [value]="rf('backBeamHeight')" (valueChange)="setRoof('backBeamHeight', $event)" hint="Om te controleren dat de spoor op de ligger blijft" />
+            </div>
+          }
         }
       }
       <div class="fields fields--4">
@@ -292,7 +305,7 @@ export class AfdakPanel {
         { label: 'Sporen', value: `${r.xs.length} × ${formatLength(r.length)}` },
         { label: 'Sporen h.o.h.', value: formatLength(r.spacing) },
         { label: 'Bovenkant voorligger', value: formatLength(r.frontHeight) },
-        { label: plan.attached ? 'Bovenkant ligger tegen gebouw' : 'Bovenkant achterligger', value: formatLength(r.backHeight) },
+        { label: r.seats[0].wall ? 'Bovenkant spoor tegen muur' : plan.attached ? 'Bovenkant ligger tegen gebouw' : 'Bovenkant achterligger', value: formatLength(r.backHeight) },
         ...(this.cover() > 0 && v.tileTopAtWall !== null ? [{ label: plan.attached ? 'Bovenkant pannen tegen gebouw' : 'Bovenkant pannen achter', value: formatLength(v.tileTopAtWall) }] : []),
         { label: 'Staanders voor, lengte', value: formatLength(r.frontPost) },
       );
@@ -313,7 +326,12 @@ export class AfdakPanel {
   });
 
   /** What the app works out for the field left empty. */
-  protected readonly hanger = computed(() => this.item().roof?.backHanger ?? 'schroef');
+  /** At the wall: rafters on the beam, against it, or in hangers on the wall itself. */
+  protected readonly wallFix = computed(() => (this.item().attached ? (this.item().roof?.backFix ?? 'op') : 'op'));
+  protected readonly hanger = computed(() => {
+    const h = this.item().roof?.backHanger ?? 'schroef';
+    return this.wallFix() === 'muur' && h === 'schroef' ? 'vlak' : h;
+  });
   protected hangerHeightPlaceholder(): string {
     const h = this.value()?.rafters?.seats[0].hanger?.height;
     return h ? lengthInput(h, 'm') : '';

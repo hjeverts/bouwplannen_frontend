@@ -255,7 +255,7 @@ function afdakFrame(dak: DakResult, o: AfdakOutcome): Frame {
   };
   beam(front, bh);
   const backBeam = plan.attached ? (o.backBeamHeight ?? Math.min(bh, 0.15)) : bh;
-  beam(back, backBeam);
+  if (!back.wall) beam(back, backBeam);
 
   const h = o.rafterHeight ?? 0;
   const outline = rafterOutline(r, D, h).map((p) => ({ x: u(p.x), y: p.y }));

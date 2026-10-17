@@ -605,3 +605,56 @@ describe('afdak rafters in joist hangers at the wall beam', () => {
     expect(afdakBeamSheet(o.value, { project: 'Schuur', subject: 'Afdak' })!).toContain('balkdragers');
   });
 });
+
+describe('afdak without a wall beam: hangers on the wall', () => {
+  const e = (extra: Partial<AfdakEntry['roof']> = {}): AfdakEntry => ({
+    ...emptyAfdak(),
+    sizeOf: 'totaal',
+    width: '5',
+    depth: '1,5',
+    roof: { ...emptyAfdakRoof(), pitch: '18', frontHeight: '2,2', beamHeight: '0,15', rafterWidth: '0,05', rafterHeight: '0,15', backFix: 'muur', ...extra },
+  });
+  const out = (entry: AfdakEntry) => {
+    const o = computeAfdakEntry(entry);
+    if (o.status !== 'ok') throw new Error(o.message);
+    if (!o.value.rafters) throw new Error(o.value.roofMessage ?? 'geen sporen');
+    return o.value;
+  };
+
+  it('needs no beam width and lets the rafters run to the wall, in hangers', () => {
+    const o = out(e());
+    const back = o.rafters!.seats[0];
+    expect(back.wall).toBe(true);
+    expect([back.s0, back.s1]).toEqual([0, 0]);
+    expect(o.rafters!.start).toBe(0);
+    // Screwed is not possible without a beam: a hanger with a level seat.
+    expect(back.hanger!.kind).toBe('vlak');
+    // The back height is the top of the rafter at the wall.
+    const a = (18 * Math.PI) / 180;
+    expect(o.rafters!.backHeight).toBeCloseTo(o.rafters!.undersideAt(0) + 0.15 / Math.cos(a), 9);
+    expect(back.hanger!.bottom).toBeCloseTo(o.rafters!.undersideAt(0), 12);
+    expect(computeAfdakEntry(e({ backHanger: 'hellend' })).status === 'ok' && out(e({ backHanger: 'hellend' })).rafters!.seats[0].hanger!.kind).toBe('hellend');
+  });
+
+  it('works from the top of the rafter at the wall, and from the tiles there', () => {
+    const fromBack = out(e({ frontHeight: '', backHeight: '2,7' }));
+    expect(fromBack.rafters!.backHeight).toBeCloseTo(2.7, 9);
+    const fromTiles = out(e({ frontHeight: '', tileTop: '2,8' }));
+    expect(fromTiles.tileTopAtWall).toBeCloseTo(2.8, 6);
+  });
+
+  it('draws no wall beam, and the hangers on the wall on the beam sheet', () => {
+    const o = out(e());
+    const beamSheet = afdakBeamSheet(o, { project: 'Schuur', subject: 'Afdak' })!;
+    expect(beamSheet).toContain('Muur, van boven: balkdragers');
+    expect(beamSheet).toContain('Muur (geen ligger)');
+    const saw = afdakRafterSheet(o, { project: 'Schuur', subject: 'Afdak' })!;
+    expect(saw).toContain('Bovenkant spoor tegen muur');
+    expect(saw).not.toContain('NaN');
+    const d = computeDak({ ...(createItem('dak') as DakItem), roofType: 'lessenaarsdak', afdakOn: true, afdak: e() });
+    if (d.status !== 'ok') throw new Error(d.message);
+    const f = buildFrame(d.value);
+    expect(f.members.filter((m) => m.kind === 'beam').length).toBe(1);
+    expect(f.members.filter((m) => m.kind === 'hanger').length).toBe(4 * o.rafters!.xs.length);
+  });
+});

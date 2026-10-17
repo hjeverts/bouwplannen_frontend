@@ -103,32 +103,35 @@ export function computeAfdakEntry(item: AfdakEntry, cover = 0): Outcome<AfdakOut
       sizes.rafterWidth = len(r.rafterWidth, 'Breedte spoor');
       sizes.rafterHeight = len(r.rafterHeight, 'Hoogte spoor');
       sizes.beamHeight = len(r.beamHeight, 'Hoogte voorligger (balk)');
-      const against = item.attached && r.backFix === 'tegen';
+      const noBeam = item.attached && r.backFix === 'muur';
+      const against = item.attached && (r.backFix === 'tegen' || noBeam);
       // The offset may be negative (rafter lower than the beam): read it without the sign check.
       const offText = (r.backOffset ?? '').trim();
       const off = offText ? parseLength(offText.replace(/^-/, '')) : 0;
       if (off !== null && Number.isNaN(off)) throw new Missing(`Bovenkant spoor t.o.v. ligger: "${offText}" is geen maat.`);
-      sizes.backOffset = against ? (offText.startsWith('-') ? -(off ?? 0) : (off ?? 0)) : 0;
-      sizes.backBeamHeight = against ? len(r.backBeamHeight, 'Hoogte ligger tegen gebouw') : null;
+      sizes.backOffset = against && !noBeam ? (offText.startsWith('-') ? -(off ?? 0) : (off ?? 0)) : 0;
+      sizes.backBeamHeight = against && !noBeam ? len(r.backBeamHeight, 'Hoogte ligger tegen gebouw') : null;
       const input: AfdakRoofInput = {
         pitch,
         frontHeight: len(r.frontHeight, 'Hoogte voorligger'),
         backHeight: backGiven,
         beamWidth: len(r.beamWidth, 'Breedte voorligger', plan.postDepth)!,
         beamHeight: need(len(r.beamHeight, 'Hoogte voorligger (balk)'), 'de hoogte van de voorligger (balk)'),
-        backWidth: need(len(r.backWidth, 'Breedte ligger achter', plan.attached ? null : plan.postDepth), plan.attached ? 'de breedte van de ligger tegen het gebouw' : 'de breedte van de achterligger'),
+        backWidth: noBeam ? 0 : need(len(r.backWidth, 'Breedte ligger achter', plan.attached ? null : plan.postDepth), plan.attached ? 'de breedte van de ligger tegen het gebouw' : 'de breedte van de achterligger'),
         rafterWidth: need(len(r.rafterWidth, 'Breedte spoor'), 'de breedte van de sporen'),
         rafterHeight: need(len(r.rafterHeight, 'Hoogte spoor'), 'de hoogte van de sporen'),
         rafterSpacing: len(r.rafterSpacing, 'Sporen h.o.h.', 0.6)!,
         notchFraction: r.notch === '4' ? 0.25 : 1 / 3,
-        backFix: item.attached && r.backFix === 'tegen' ? 'tegen' : 'op',
+        backFix: against ? 'tegen' : 'op',
+        backNoBeam: noBeam,
         backOffset: sizes.backOffset,
         backBeamHeight: sizes.backBeamHeight,
         beamAlign: r.beamAlign ?? 'midden',
         frontNotch: len(r.frontNotch, 'Keep voor'),
         backNotch: against ? null : len(r.backNotch, 'Keep achter'),
-        backThrough: against && !!r.backThrough && (r.backHanger ?? 'schroef') === 'schroef',
-        backHanger: against ? (r.backHanger ?? 'schroef') : 'schroef',
+        backThrough: against && !noBeam && !!r.backThrough && (r.backHanger ?? 'schroef') === 'schroef',
+        // Without a beam the rafters can only hang in hangers on the wall.
+        backHanger: noBeam ? (r.backHanger === 'hellend' ? 'hellend' : 'vlak') : against ? (r.backHanger ?? 'schroef') : 'schroef',
         hangerSeat: len(r.hangerSeat, 'Zitdiepte balkdrager') ?? undefined,
         hangerHeight: len(r.hangerHeight, 'Hoogte balkdrager'),
         frontPocket: len(r.frontPocket, 'Inkeping in voorligger') ?? 0,

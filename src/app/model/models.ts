@@ -357,7 +357,8 @@ export interface AfdakRoofEntry {
   /** Deepest notch: '3' = 1/3 of the rafter height, '4' = 1/4. */
   notch: '3' | '4';
   /** Against a building: rafters on top of the beam ('op', default) or against it, screwed ('tegen'). */
-  backFix?: 'op' | 'tegen';
+  /** 'muur': no beam at the wall, the rafters hang in joist hangers fixed to the wall itself. */
+  backFix?: 'op' | 'tegen' | 'muur';
   /** 'tegen': top of the rafter above the top of the beam (0 = flush, negative = lower). */
   backOffset?: string;
   /** 'tegen': height of that beam (to check the rafter end stays on it). */

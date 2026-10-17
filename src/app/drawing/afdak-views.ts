@@ -157,7 +157,7 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
   if (plan.backRow !== null && r.backPost !== null) post(plan.backRow, r.backPost);
   prims.push({ t: 'poly', rings: [rect(front.s0, front.z - bh, front.s1, front.z)], cls: 'f', fill: 'rgb(200,178,138)' });
   const backBeam = plan.attached ? (o.backBeamHeight ?? Math.min(bh, 0.15)) : bh;
-  prims.push({ t: 'poly', rings: [rect(back.s0, back.z - backBeam, back.s1, back.z)], cls: 'f', fill: 'rgb(200,178,138)' });
+  if (!back.wall) prims.push({ t: 'poly', rings: [rect(back.s0, back.z - backBeam, back.s1, back.z)], cls: 'f', fill: 'rgb(200,178,138)' });
   // Pockets in the beams: the level bottom of the cut, seen through the rafter's side.
   for (const st of [front, back]) if (st.pocket > 1e-6) prims.push({ t: 'line', pts: [{ x: st.s0, y: st.floor }, { x: st.s1, y: st.floor }], cls: 'sym-thin' });
   prims.push({ t: 'poly', rings: [outline], cls: 'f', fill: WOOD });
@@ -330,7 +330,7 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: Afdak
     rows.push(
       ['Diepte haaks op spoor', b(mm(back.depth)), mm(front.depth)],
       [back.through ? 'Over (achter: neus dik)' : 'Over boven de keep', b(mm(back.left)), mm(front.left)],
-      ['Ligger breed', mm(back.s1 - back.s0), mm(front.s1 - front.s0)],
+      ['Ligger breed', back.wall ? '–' : mm(back.s1 - back.s0), mm(front.s1 - front.s0)],
       ['Ligger op de staander', o.plan.attached ? 'tegen muur' : ALIGN[o.beamAlign], ALIGN[o.beamAlign]],
     );
     table(
@@ -340,7 +340,7 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: Afdak
     );
     const hrows: string[][] = [
       ['Bovenkant voorligger', mm(r.frontHeight)],
-      [o.plan.attached ? 'Bovenkant ligger tegen gebouw' : 'Bovenkant achterligger', mm(r.backHeight)],
+      [r.seats[0].wall ? 'Bovenkant spoor tegen muur' : o.plan.attached ? 'Bovenkant ligger tegen gebouw' : 'Bovenkant achterligger', mm(r.backHeight)],
       ['Staanders voor (tot onder ligger)', mm(r.frontPost)],
     ];
     if (r.backPost !== null) hrows.push(['Staanders achter', mm(r.backPost)]);
@@ -351,7 +351,9 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: Afdak
       hrows.push(['Bovenkant pannen voor · achter', `${mm(byS[0].y)} · ${mm(byS[byS.length - 1].y)}`]);
     }
     table('Hoogtes vanaf de vloer', hrows, [30]);
-    const fix = back.against
+    const fix = back.wall
+      ? ` Aan de muurkant geen ligger: de spoor eindigt tegen de muur, in een balkdrager (${back.hanger?.kind === 'hellend' ? 'kantelbaar' : 'vlakke zit'}) op de muur, onderkant drager ${mm(back.hanger?.bottom ?? 0)} vanaf de vloer.`
+      : back.against
       ? ` Aan de muurkant eindigt de spoor tegen de ligger, bovenkant ${o.backOffset ? `${mm(o.backOffset)} boven` : 'gelijk met'} de ligger: ${
           back.hanger
             ? `in een balkdrager (${back.hanger.kind === 'hellend' ? 'kantelbaar' : 'vlakke zit'}), onderkant drager ${mm(back.hanger.bottom)} vanaf de vloer.`
@@ -393,12 +395,14 @@ export function afdakBeamView(o: AfdakOutcome, which: 0 | 1): View | null {
   const beam = beamsOf(o)[which];
   const { seat, name } = beam;
   const W = o.plan.width;
-  const bw = seat.s1 - seat.s0;
+  const onWall = !!seat.wall;
+  const bw = onWall ? 0.1 : seat.s1 - seat.s0;
   const rw = o.rafterWidth ?? 0.05;
   const prims: Prim[] = [];
   // y = across the beam, 0 at its front face.
   const y = (s: number) => seat.s1 - s;
-  prims.push({ t: 'poly', rings: [rect(0, 0, W, bw)], cls: 'f', fill: 'rgb(200,178,138)' });
+  if (onWall) prims.push({ t: 'poly', rings: [rect(-0.2, 0, W + 0.2, bw)], cls: 'wall' });
+  else prims.push({ t: 'poly', rings: [rect(0, 0, W, bw)], cls: 'f', fill: 'rgb(200,178,138)' });
   const pocket = seat.pocket > 1e-6;
   const over = Math.max(0.05, bw * 0.4);
   r.xs.forEach((x, i) => {
@@ -425,7 +429,8 @@ export function afdakBeamView(o: AfdakOutcome, which: 0 | 1): View | null {
   if (posts.length) for (let i = 0; i + 1 < xs.length; i++) if (xs[i + 1] - xs[i] > 0.0005) prims.push({ t: 'dim', a: { x: xs[i], y: yd }, b: { x: xs[i + 1], y: yd }, off: -8, text: mm(xs[i + 1] - xs[i]) });
   prims.push({ t: 'dim', a: { x: 0, y: yd }, b: { x: W, y: yd }, off: posts.length ? -15 : -8, text: mm(W) });
   // Across: the beam's width.
-  prims.push({ t: 'dim', a: { x: W, y: 0 }, b: { x: W, y: bw }, off: -5, text: mm(bw) });
+  if (!onWall) prims.push({ t: 'dim', a: { x: W, y: 0 }, b: { x: W, y: bw }, off: -5, text: mm(bw) });
+  if (onWall) return { prims, title: 'Muur, van boven: balkdragers (maat vanaf linkerrand dak tot linkerkant spoor)', scalable: true };
   const what = pocket ? 'inkepingen' : seat.hanger ? 'balkdragers' : seat.against ? 'sporen ertegen' : 'sporen erop';
   return { prims, title: `${name} ${mm(bw)} × ${mm(beam.height)}, van boven: ${what} (maat tot linkerkant spoor)`, scalable: true };
 }
@@ -500,6 +505,12 @@ export function afdakBeamSheet(o: AfdakOutcome, meta: SheetMeta): string | null 
     const rows: string[][] = [];
     for (const b of beamsOf(o)) {
       const st = b.seat;
+      if (st.wall) {
+        rows.push(['Muur (geen ligger)', '']);
+        rows.push(['  balkdragers', `${r.xs.length} × ${mm(rw)} br.`]);
+        rows.push(['  onderkant drager', `${mm(st.hanger?.bottom ?? 0)} v. vloer`]);
+        continue;
+      }
       rows.push([`${b.name}`, `${mm(o.plan.width)} lang`]);
       rows.push(['  maat', `${mm(st.s1 - st.s0)} × ${mm(b.height)}`]);
       if (st.pocket > 1e-6) rows.push(['  inkeping per spoor', `${mm(rw)} br. × ${mm(st.pocket)} diep`]);
@@ -514,7 +525,7 @@ export function afdakBeamSheet(o: AfdakOutcome, meta: SheetMeta): string | null 
       x,
       yy,
       w,
-      `Meet alle maten vanaf hetzelfde linkereind van de ligger, niet van spoor tot spoor, dan lopen kleine fouten niet op. Sporen ${mm(r.spacing)} hart op hart; de buitenste gelijk met de rand.${
+      `${r.seats[0].wall && o.plan.wallOffset !== null ? `Op de muur: tel ${mm(o.plan.wallOffset)} op voor de maat vanaf de hoek van het gebouw. ` : ''}Meet alle maten vanaf hetzelfde linkereind van de ligger, niet van spoor tot spoor, dan lopen kleine fouten niet op. Sporen ${mm(r.spacing)} hart op hart; de buitenste gelijk met de rand.${
         beamsOf(o).some((b) => b.seat.pocket > 1e-6) ? ' Inkepingen met een vlakke bodem, zo breed als de spoor: zaag de zijkanten in en hak het hout eruit.' : ''
       }`,
     ).svg;

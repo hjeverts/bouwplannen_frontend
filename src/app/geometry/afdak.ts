@@ -190,6 +190,8 @@ export interface AfdakRoofInput {
   backOffset?: number;
   /** 'tegen': height of that beam, to check the rafter's end does not hang below it. */
   backBeamHeight?: number | null;
+  /** Where a beam lies on its posts: centred, flush with their front face, or with their back face. */
+  beamAlign?: 'midden' | 'voor' | 'achter';
 }
 
 export interface Seat {
@@ -253,11 +255,16 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
   const h = roof.rafterHeight;
   if (!(h > 0) || !(roof.rafterWidth > 0)) throw new RangeError('Vul de maat van de sporen in.');
   if (!(roof.beamWidth > 0)) throw new RangeError('Vul de breedte van de voorligger in.');
-  // Front beam centred on the front posts; back support against the wall, or centred on the back posts.
-  const f0 = plan.frontRow - roof.beamWidth / 2;
-  const f1 = plan.frontRow + roof.beamWidth / 2;
-  const b0 = plan.backRow === null ? 0 : plan.backRow - roof.backWidth / 2;
-  const b1 = plan.backRow === null ? roof.backWidth : plan.backRow + roof.backWidth / 2;
+  // A beam on a row of posts: centred, or flush with the front or the back face of the posts.
+  // The back support of a roof against a building lies against the wall.
+  const onPosts = (row: number, width: number): [number, number] => {
+    const pd = plan.postDepth;
+    if (roof.beamAlign === 'voor') return [row + pd / 2 - width, row + pd / 2];
+    if (roof.beamAlign === 'achter') return [row - pd / 2, row - pd / 2 + width];
+    return [row - width / 2, row + width / 2];
+  };
+  const [f0, f1] = onPosts(plan.frontRow, roof.beamWidth);
+  const [b0, b1] = plan.backRow === null ? [0, roof.backWidth] : onPosts(plan.backRow, roof.backWidth);
   if (!(roof.backWidth > 0)) throw new RangeError(plan.attached ? 'Vul de breedte van de ligger tegen het gebouw in.' : 'Vul de breedte van de achterligger in.');
 
   const against = plan.attached && roof.backFix === 'tegen';

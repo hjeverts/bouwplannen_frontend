@@ -17,6 +17,7 @@ const rect = (x0: number, y0: number, x1: number, y1: number): Point[] => [
   { x: x1, y: y1 },
   { x: x0, y: y1 },
 ];
+const ALIGN = { midden: 'midden', voor: 'voorkant gelijk', achter: 'achterkant gelijk' };
 const SIDE_NAMES = { links: 'Links', rechts: 'Rechts', voor: 'Voor', achter: 'Achter' };
 
 /** From above: building at the top, front at the bottom; y = depth − distance from the wall. */
@@ -289,6 +290,7 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta): string | nul
         ['Diepte haaks op spoor', b(mm(back.depth)), mm(front.depth)],
         ['Over boven de keep', b(mm(back.left)), mm(front.left)],
         ['Ligger breed', mm(back.s1 - back.s0), mm(front.s1 - front.s0)],
+        ['Ligger op de staander', o.plan.attached ? 'tegen muur' : ALIGN[o.beamAlign], ALIGN[o.beamAlign]],
       ],
       [20, 16],
     );

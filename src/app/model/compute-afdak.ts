@@ -16,6 +16,8 @@ export interface AfdakOutcome {
   /** Rafters fixed against the wall beam: its height (if given) and the rafter top above it. */
   backBeamHeight: number | null;
   backOffset: number;
+  /** Where the beams lie on their posts. */
+  beamAlign: 'midden' | 'voor' | 'achter';
 }
 
 class Missing extends Error {}
@@ -100,11 +102,12 @@ export function computeAfdakItem(item: AfdakItem): Outcome<AfdakOutcome> {
         backFix: item.attached && r.backFix === 'tegen' ? 'tegen' : 'op',
         backOffset: sizes.backOffset,
         backBeamHeight: sizes.backBeamHeight,
+        beamAlign: r.beamAlign ?? 'midden',
       });
     } catch (e) {
       if (!(e instanceof Missing || e instanceof RangeError)) throw e;
       roofMessage = e.message;
     }
   }
-  return { status: 'ok', value: { plan, rafters, roofMessage, ...sizes, notch: r?.notch === '4' ? '4' : '3' } };
+  return { status: 'ok', value: { plan, rafters, roofMessage, ...sizes, notch: r?.notch === '4' ? '4' : '3', beamAlign: r?.beamAlign ?? 'midden' } };
 }

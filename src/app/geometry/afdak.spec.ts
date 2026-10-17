@@ -163,6 +163,33 @@ describe('afdak rafters fixed against the wall beam', () => {
   });
 });
 
+describe('afdak beams on their posts', () => {
+  // 120 × 120 posts, a 70 mm wide beam.
+  const plan = computeAfdak({ ...base, postWidth: 0.12, postDepth: 0.12 });
+  const narrow = { ...roof, beamWidth: 0.07, backWidth: 0.07 };
+
+  it('puts the beam centred, or flush with the front or the back of the posts', () => {
+    const post = { front: plan.frontRow + 0.06, back: plan.frontRow - 0.06 };
+    const mid = computeRafters(plan, narrow).seats[1];
+    expect(mid.s0).toBeCloseTo(plan.frontRow - 0.035, 9);
+    expect(mid.s1).toBeCloseTo(plan.frontRow + 0.035, 9);
+    const front = computeRafters(plan, { ...narrow, beamAlign: 'voor' }).seats[1];
+    expect(front.s1).toBeCloseTo(post.front, 9);
+    expect(front.s0).toBeCloseTo(post.front - 0.07, 9);
+    const back = computeRafters(plan, { ...narrow, beamAlign: 'achter' }).seats[1];
+    expect(back.s0).toBeCloseTo(post.back, 9);
+    // Flush with the back: the seat starts further back, so the wall side comes lower for the same pitch.
+    expect(computeRafters(plan, { ...narrow, beamAlign: 'achter' }).backHeight).toBeLessThan(computeRafters(plan, { ...narrow, beamAlign: 'voor' }).backHeight);
+  });
+
+  it('applies to the back beam of a free-standing roof as well', () => {
+    const free = computeAfdak({ ...base, attached: false, postsBack: 3, depth: 3, postWidth: 0.12, postDepth: 0.12 });
+    const r = computeRafters(free, { ...narrow, beamAlign: 'voor' });
+    expect(r.seats[0].s1).toBeCloseTo(free.backRow! + 0.06, 9);
+    expect(r.seats[1].s1).toBeCloseTo(free.frontRow + 0.06, 9);
+  });
+});
+
 describe('afdak item and drawings', () => {
   const item: AfdakItem = {
     ...(createItem('afdak') as AfdakItem),

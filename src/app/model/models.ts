@@ -352,6 +352,8 @@ export interface AfdakRoofEntry {
   backOffset?: string;
   /** 'tegen': height of that beam (to check the rafter end stays on it). */
   backBeamHeight?: string;
+  /** Beam on its posts: centred (default), flush with the front or the back of the posts. */
+  beamAlign?: 'midden' | 'voor' | 'achter';
 }
 
 export function emptyAfdakRoof(): AfdakRoofEntry {

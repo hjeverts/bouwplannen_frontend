@@ -93,6 +93,11 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
           hint="Voor–achter: waar de spoor op ligt"
         />
       </div>
+      <div class="segmented segmented--small" role="radiogroup" aria-label="Ligger op de staanders">
+        <button type="button" role="radio" [attr.aria-checked]="(item().roof?.beamAlign ?? 'midden') === 'midden'" (click)="setRoof('beamAlign', 'midden')">Ligger midden op de staander</button>
+        <button type="button" role="radio" [attr.aria-checked]="item().roof?.beamAlign === 'voor'" (click)="setRoof('beamAlign', 'voor')">Gelijk met voorkant</button>
+        <button type="button" role="radio" [attr.aria-checked]="item().roof?.beamAlign === 'achter'" (click)="setRoof('beamAlign', 'achter')">Gelijk met achterkant</button>
+      </div>
       @if (item().attached) {
         <div class="segmented segmented--small" role="radiogroup" aria-label="Sporen aan de muurkant">
           <button type="button" role="radio" [attr.aria-checked]="(item().roof?.backFix ?? 'op') === 'op'" (click)="setRoof('backFix', 'op')">Spoor op de ligger (keep)</button>

@@ -1,9 +1,9 @@
 import { Component, computed, input, output } from '@angular/core';
 import { centroid, Drawing, DrawingSpec, Mark, Segment } from '../drawing/drawing';
 import { Point, RoofResult } from '../geometry/geometry';
-import { formatAngle, formatArea, formatLength, formatPercent } from '../geometry/units';
+import { formatAngle, formatArea, formatLength, formatMm, formatPercent } from '../geometry/units';
 import { computeDak } from '../model/compute';
-import { DakItem } from '../model/models';
+import { DakItem, emptyTiles, TileEntry } from '../model/models';
 import { MeasureField } from '../ui/measure-field';
 import { ResultRow, Results } from '../ui/results';
 
@@ -152,6 +152,47 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
       <app-results [rows]="rows()" [message]="tooMany() ? null : message()" [state]="outcome().status" />
       <app-drawing [spec]="drawing()" ariaLabel="Doorsnede van het dak" />
     </div>
+
+    <details class="more" [open]="hasTiles()">
+      <summary>Dakpannen, panlatten en tengels</summary>
+      <p class="hint">
+        Neem de maten over van het blad van de fabrikant. Per dakvlak, langs de spar gemeten: de bovenste lat ligt een klein stukje onder de nok, dan
+        volgen gelijke latafstanden, en onderaan de laatste latafstand tot het einde van de spar (met overstek), waar de gootlat ligt.
+      </p>
+      <h3 class="group-title">Pan</h3>
+      <div class="fields fields--4">
+        <app-measure-field label="Breedte pan" [value]="t('width')" (valueChange)="setTile('width', $event)" hint="b, van het blad" />
+        <app-measure-field label="Lengte pan" [value]="t('length')" (valueChange)="setTile('length', $event)" hint="l, van het blad" />
+        <app-measure-field label="Dekkende breedte" [value]="t('cover')" (valueChange)="setTile('cover', $event)" />
+        <app-measure-field label="Latafstand" [value]="t('gauge')" (valueChange)="setTile('gauge', $event)" hint="Grootste latafstand" />
+        <app-measure-field label="Kleinste latafstand" [value]="t('gaugeMin')" (valueChange)="setTile('gaugeMin', $event)" hint="Alleen bij een verschuifpan; leeg = vaste latafstand" />
+        <app-measure-field label="Minimale dakhelling" kind="angle" [value]="t('minPitch')" (valueChange)="setTile('minPitch', $event)" />
+        <label class="field field--text">
+          <span class="field-label">Gewicht per pan</span>
+          <span class="field-box">
+            <input type="text" inputmode="decimal" [value]="t('weight')" (input)="setTile('weight', $any($event.target).value)" placeholder="" />
+            <span class="field-unit">kg</span>
+          </span>
+        </label>
+      </div>
+      <h3 class="group-title">Latten en tengels</h3>
+      <div class="fields fields--4">
+        <app-measure-field label="Bovenste lat tot nok" [value]="t('ridgeGap')" (valueChange)="setTile('ridgeGap', $event)" placeholder="0,035" hint="Langs de spar, meestal 30–40 mm" />
+        <app-measure-field label="Laatste latafstand" [value]="t('eavesGap')" (valueChange)="setTile('eavesGap', $event)" hint="Onderste lat tot het einde van de spar, bij de goot" />
+        <app-measure-field label="Tengels h.o.h." [value]="t('counterSpacing')" (valueChange)="setTile('counterSpacing', $event)" placeholder="0,600" hint="Meestal op elke spar" />
+      </div>
+      <h3 class="group-title">Gevelpannen (als die er zijn)</h3>
+      <div class="fields fields--4">
+        <app-measure-field label="Gevelpan links / voor" [value]="t('vergeStart')" (valueChange)="setTile('vergeStart', $event)" hint="Dekkende breedte; leeg = geen" />
+        <app-measure-field label="Gevelpan rechts / achter" [value]="t('vergeEnd')" (valueChange)="setTile('vergeEnd', $event)" hint="Dekkende breedte; leeg = geen" />
+      </div>
+      @if (hasTiles()) {
+        <app-results [rows]="tileRows()" [message]="tileMessage()" [state]="tileMessage() ? 'incomplete' : 'ok'" />
+        @for (w of tileWarnings(); track w) {
+          <p class="status status--warn">{{ w }}</p>
+        }
+      }
+    </details>
   `,
 })
 export class DakEditor {
@@ -190,6 +231,64 @@ export class DakEditor {
       default:
         return false;
     }
+  });
+
+  protected t(field: keyof TileEntry): string {
+    return this.item().tiles?.[field] ?? '';
+  }
+
+  protected setTile(field: keyof TileEntry, value: string): void {
+    this.changed.emit({ ...this.item(), tiles: { ...emptyTiles(), ...this.item().tiles, [field]: value } });
+  }
+
+  protected readonly hasTiles = computed(() => Object.values(this.item().tiles ?? {}).some((v) => String(v ?? '').trim()));
+
+  private readonly tiles = computed(() => {
+    const o = this.outcome();
+    return o.status === 'ok' ? o.value.tiles : null;
+  });
+
+  protected readonly tileMessage = computed(() => {
+    const o = this.outcome();
+    if (o.status !== 'ok') return 'Maak eerst het dak compleet.';
+    return o.value.tilesMessage;
+  });
+
+  protected readonly tileWarnings = computed(() => this.tiles()?.warnings ?? []);
+
+  protected readonly tileRows = computed<ResultRow[]>(() => {
+    const t = this.tiles();
+    if (!t || !t.planes.length) return [];
+    const count = (n: number | null) => (n === null ? '–' : new Intl.NumberFormat('nl-NL').format(n));
+    const rows: ResultRow[] = [];
+    if (t.tiles !== null) {
+      const verge = t.vergeTiles ? ` + ${count(t.vergeTiles)} gevelpannen` : '';
+      rows.push({ label: 'Pannen', value: `${count(t.tiles)}${verge}`, main: true });
+    } else {
+      rows.push({ label: 'Pannen', value: 'vul de daklengte in', tone: 'warn' });
+    }
+    for (const p of t.planes) {
+      const name = t.planes.length > 1 ? `${p.label.replace('Dakvlak ', '')}: ` : '';
+      rows.push(
+        { label: `${name}spar met overstek`, value: formatLength(p.slope) },
+        { label: `${name}latafstand`, value: formatMm(p.gauge) },
+        { label: `${name}bovenste lat tot nok`, value: formatMm(p.ridgeGap) },
+        { label: `${name}laatste latafstand`, value: formatMm(p.eavesGap), tone: Math.abs(p.eavesDiff) > 0.005 ? 'warn' : undefined },
+        { label: `${name}panlatten + gootlat`, value: `${p.battens} + 1` },
+        { label: `${name}rijen pannen`, value: String(p.rows) },
+      );
+    }
+    if (t.normalPerRow !== null) {
+      rows.push({ label: 'Pannen per rij', value: t.vergePerRow ? `${t.normalPerRow} + ${t.vergePerRow} gevelpan${t.vergePerRow > 1 ? 'nen' : ''}` : String(t.normalPerRow) });
+      rows.push({ label: 'Dekking langs de nok', value: `${formatLength(t.covered)} (dak ${formatLength(t.width)})` });
+    }
+    if (t.battenLength !== null) rows.push({ label: 'Panlatten totaal', value: formatLength(t.battenLength, 1) });
+    if (t.counterBattens !== null) rows.push({ label: 'Tengels', value: `${t.counterBattens} stuks · ${formatLength(t.counterLength, 1)}` });
+    rows.push({ label: 'Pannen per m² (blad)', value: new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 1 }).format(t.perM2) });
+    if (t.headLap !== null) rows.push({ label: 'Overlap in de lengte', value: formatMm(t.headLap) });
+    if (t.sideLap !== null) rows.push({ label: 'Overlap opzij', value: formatMm(t.sideLap) });
+    if (t.weight !== null) rows.push({ label: 'Gewicht pannen', value: `${new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 0 }).format(t.weight)} kg` });
+    return rows;
   });
 
   /** "Overstek goot links", for a lean-to with which side is low or high. */

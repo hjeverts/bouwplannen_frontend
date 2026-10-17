@@ -52,6 +52,19 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
         gableOverhang: c(item.gableOverhang),
         overhangRight: c(item.overhangRight),
         gableOverhangEnd: c(item.gableOverhangEnd),
+        tiles: item.tiles && {
+          ...item.tiles,
+          width: c(item.tiles.width)!,
+          length: c(item.tiles.length)!,
+          gauge: c(item.tiles.gauge)!,
+          gaugeMin: c(item.tiles.gaugeMin)!,
+          cover: c(item.tiles.cover)!,
+          ridgeGap: c(item.tiles.ridgeGap)!,
+          eavesGap: c(item.tiles.eavesGap)!,
+          counterSpacing: c(item.tiles.counterSpacing)!,
+          vergeStart: c(item.tiles.vergeStart)!,
+          vergeEnd: c(item.tiles.vergeEnd)!,
+        },
         length: c(item.length)!,
       };
     case 'maten':

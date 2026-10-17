@@ -70,6 +70,35 @@ export interface VormItem extends BaseItem {
   openings: OpeningEntry[];
 }
 
+/** Roof tile data from the manufacturer's sheet, and how the battens go on. All lengths as typed. */
+export interface TileEntry {
+  /** Tile width and length (b × l). */
+  width: string;
+  length: string;
+  /** Batten gauge (latafstand); `gaugeMin` only for a tile that can slide (verschuifpan). */
+  gauge: string;
+  gaugeMin: string;
+  /** Cover width (dekkende breedte). */
+  cover: string;
+  /** From the ridge to the top batten, along the slope (30–40 mm on most sheets). */
+  ridgeGap: string;
+  /** Last gauge: lowest batten to the end of the rafter at the eaves. */
+  eavesGap: string;
+  /** Counter battens, centre to centre. */
+  counterSpacing: string;
+  /** Cover width of the verge tiles (gevelpannen); empty = none. */
+  vergeStart: string;
+  vergeEnd: string;
+  /** Lowest pitch, degrees. */
+  minPitch: string;
+  /** kg per tile. */
+  weight: string;
+}
+
+export function emptyTiles(): TileEntry {
+  return { width: '', length: '', gauge: '', gaugeMin: '', cover: '', ridgeGap: '', eavesGap: '', counterSpacing: '', vergeStart: '', vergeEnd: '', minPitch: '', weight: '' };
+}
+
 export interface DakItem extends BaseItem {
   kind: 'dak';
   roofType: 'zadeldak' | 'lessenaarsdak' | 'mansardekap';
@@ -98,6 +127,8 @@ export interface DakItem extends BaseItem {
   gableOverhang?: string;
   /** Overhang past the other gable end ('0' = none); empty = same as `gableOverhang`. */
   gableOverhangEnd?: string;
+  /** Roof tiles: battens, counter battens and the number of tiles (optional). */
+  tiles?: TileEntry;
   /** Length of the roof along the ridge, for roof surface. */
   length: string;
 }

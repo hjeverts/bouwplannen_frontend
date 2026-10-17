@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { computeDak, computeDriehoek, computeHoek, computeVorm } from './compute';
 import { outlineOf, outlineToDxf, parseImport, projectToCsv, toJson } from './export';
-import { createItem, DakItem, DriehoekItem, HoekItem, resizeVorm, VormItem } from './models';
+import { createItem, DakItem, DriehoekItem, emptyTiles, HoekItem, resizeVorm, VormItem } from './models';
 import { ProjectStore } from './project-store';
 import { MemoryProjectStorage, PROJECT_STORAGE } from './storage';
 
@@ -122,6 +122,29 @@ describe('compute', () => {
     if (r.status !== 'ok') throw new Error(r.message);
     expect(r.value.roof.left.rafterWithOverhang).toBeGreaterThan(r.value.roof.left.rafter);
     expect(r.value.roof.right!.rafterWithOverhang).toBeCloseTo(r.value.roof.right!.rafter, 9);
+  });
+
+  it('tiles from the manufacturer sheet, typed in mm', () => {
+    const tiles = { ...emptyTiles(), width: '267 mm', length: '367 mm', gauge: '308 mm', cover: '204 mm', eavesGap: '245 mm', weight: '2,46', minPitch: '25' };
+    const item = { ...(createItem('dak') as DakItem), span: '8', pitch: '45', length: '10', tiles };
+    const r = computeDak(item);
+    if (r.status !== 'ok') throw new Error(r.message);
+    expect(r.value.tilesMessage).toBeNull();
+    const t = r.value.tiles!;
+    expect(t.planes).toHaveLength(2);
+    // Rafter 4·√2 = 5,657 m: 35 + 17 × 308 = 5271, last gauge 386 or one more (78): 386 − 245 = 141 < 245 − 78.
+    expect(t.planes[0].spaces).toBe(17);
+    expect(t.planes[0].eavesGap).toBeCloseTo(4 * Math.SQRT2 - 0.035 - 17 * 0.308, 9);
+    expect(t.normalPerRow).toBe(49);
+    expect(t.warnings.length).toBe(2);
+    // No tile data: no tiles and no message; incomplete data: a message, the roof itself still works.
+    const none = computeDak({ ...item, tiles: emptyTiles() });
+    expect(none.status === 'ok' && none.value.tiles === null && none.value.tilesMessage === null).toBe(true);
+    const half = computeDak({ ...item, tiles: { ...emptyTiles(), gauge: '308 mm' } });
+    expect(half.status).toBe('ok');
+    if (half.status === 'ok') expect(half.value.tilesMessage).toMatch(/dekkende breedte/);
+    const wrong = computeDak({ ...item, tiles: { ...tiles, weight: 'zwaar' } });
+    if (wrong.status === 'ok') expect(wrong.value.tilesMessage).toMatch(/geen getal/);
   });
 
   it('zadeldak: left and right pitch with different wall heights', () => {

@@ -111,6 +111,23 @@ export function summarize(item: Item, items: Item[] = []): [string, string][] {
       if (purlinLength !== null) out.push(['Gordingen en nok', formatLength(purlinLength)]);
       out.push(['Gevelvlak', formatArea(roof.gableArea)]);
       if (surfaceLeft !== null) out.push(['Dakoppervlak', formatArea(surfaceLeft + (surfaceRight ?? 0))]);
+      const t = r.value.tiles;
+      if (t && t.planes.length) {
+        for (const p of t.planes) {
+          out.push(
+            [`${p.label}: latafstand`, formatMm(p.gauge)],
+            [`${p.label}: bovenste lat tot nok`, formatMm(p.ridgeGap)],
+            [`${p.label}: laatste latafstand`, formatMm(p.eavesGap)],
+            [`${p.label}: panlatten (+ gootlat)`, `${p.battens} + 1`],
+            [`${p.label}: rijen pannen`, String(p.rows)],
+          );
+        }
+        if (t.tiles !== null) out.push(['Pannen', String(t.tiles)], ['Pannen per rij', String(t.normalPerRow)]);
+        if (t.vergeTiles) out.push(['Gevelpannen', String(t.vergeTiles)]);
+        if (t.battenLength !== null) out.push(['Panlatten totaal', formatLength(t.battenLength, 1)]);
+        if (t.counterBattens !== null) out.push(['Tengels', `${t.counterBattens} stuks, ${formatLength(t.counterLength, 1)}`]);
+      }
+      if (r.value.tilesMessage) out.push(['Pannen', r.value.tilesMessage]);
       return out;
     }
     case 'maten': {

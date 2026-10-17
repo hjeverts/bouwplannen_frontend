@@ -13,8 +13,9 @@ import {
   TraverseResult,
 } from '../geometry/geometry';
 import { analyzeRoom, OpeningInput, RoomResult } from '../geometry/room';
+import { computeTiles, TileResult } from '../geometry/tiles';
 import { parseAngle, parseLength } from '../geometry/units';
-import { DakItem, DriehoekItem, HoekItem, MatenItem, VormItem } from './models';
+import { DakItem, TileEntry, DriehoekItem, HoekItem, MatenItem, VormItem } from './models';
 
 /**
  * Outcome of computing an item:
@@ -175,9 +176,64 @@ export interface DakResult {
   /** Roof surface per slope, including both overhangs, when the roof length is known. */
   surfaceLeft: number | null;
   surfaceRight: number | null;
+  /** Tiles, battens and counter battens; null when no tile data is entered. */
+  tiles: TileResult | null;
+  /** Why the tiles cannot be worked out yet (missing or wrong value); null when they can, or none entered. */
+  tilesMessage: string | null;
 }
 
 export function computeDak(item: DakItem): Outcome<DakResult> {
+  const r = computeSection(item);
+  if (r.status !== 'ok') return r as Outcome<DakResult>;
+  let tiles: TileResult | null = null;
+  let tilesMessage: string | null = null;
+  try {
+    tiles = tilesOf(item.tiles, r.value);
+  } catch (e) {
+    if (!(e instanceof GeometryError || e instanceof InputError)) throw e;
+    tilesMessage = e.message;
+  }
+  return { status: 'ok', value: { ...r.value, tiles, tilesMessage } };
+}
+
+const NUMBER_RE = /^\s*(\d+(?:[.,]\d+)?)\s*(kg)?\s*$/i;
+
+/** Tiles from the entered tile data; null when nothing is entered. Throws on a missing or wrong value. */
+function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 'tilesMessage'>): TileResult | null {
+  if (!entry || Object.values(entry).every((v) => !String(v ?? '').trim())) return null;
+  const positive = (text: string, label: string) => {
+    const v = len(text, label);
+    if (v !== null && v <= 0) throw new InputError(`${label} moet groter zijn dan 0.`);
+    return v;
+  };
+  const gauge = positive(entry.gauge, 'Latafstand');
+  const cover = positive(entry.cover, 'Dekkende breedte');
+  const eavesGap = len(entry.eavesGap, 'Laatste latafstand');
+  const missing = [gauge === null && 'de latafstand', cover === null && 'de dekkende breedte', eavesGap === null && 'de laatste latafstand (onderste lat tot het einde van de spar)'].filter(Boolean);
+  if (missing.length) throw new InputError(`Vul voor de pannen nog ${missing.join(', ')} in.`);
+  const gaugeMin = positive(entry.gaugeMin, 'Kleinste latafstand');
+  if (gaugeMin !== null && gaugeMin > gauge!) throw new InputError('De kleinste latafstand is groter dan de latafstand.');
+  const weightText = entry.weight?.trim() ?? '';
+  const w = NUMBER_RE.exec(weightText);
+  if (weightText && !w) throw new InputError(`Gewicht per pan: "${weightText}" is geen getal. Gebruik bijvoorbeeld 2,46.`);
+  const minPitch = ang(entry.minPitch ?? '', 'Minimale dakhelling');
+  return computeTiles(dak.roof, dak.purlinLength, {
+    width: positive(entry.width, 'Breedte pan'),
+    length: positive(entry.length, 'Lengte pan'),
+    gauge: gauge!,
+    gaugeMin,
+    cover: cover!,
+    ridgeGap: len(entry.ridgeGap, 'Afstand bovenste lat tot nok') ?? 0.035,
+    eavesGap: eavesGap!,
+    counterSpacing: positive(entry.counterSpacing, 'Tengelafstand') ?? 0.6,
+    vergeStart: positive(entry.vergeStart, 'Gevelpan links / voor'),
+    vergeEnd: positive(entry.vergeEnd, 'Gevelpan rechts / achter'),
+    minPitch,
+    weight: w ? Number(w[1].replace(',', '.')) : null,
+  });
+}
+
+function computeSection(item: DakItem): Outcome<Omit<DakResult, 'tiles' | 'tilesMessage'>> {
   return guard(() => {
     const mansard = item.roofType === 'mansardekap';
     const span = len(item.span, 'Overspanning');

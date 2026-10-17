@@ -105,6 +105,10 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
         </div>
         @if (item().roof?.backFix === 'tegen') {
           <p class="hint">De spoor eindigt met een loodsnede tegen de voorkant van de ligger en wordt daaraan vastgezet (schuin schroeven of een balkdrager). Geen keep aan de muurkant.</p>
+          <label class="check">
+            <input type="checkbox" [checked]="!!item().roof?.backThrough" (change)="setRoofFlag('backThrough', !item().roof?.backThrough)" />
+            Boven de ligger doorlopen tot de muur (neus voor de bovenste panlat)
+          </label>
           <div class="fields fields--3">
             <app-measure-field label="Bovenkant spoor t.o.v. ligger" [value]="rf('backOffset')" (valueChange)="setRoof('backOffset', $event)" placeholder="0" hint="0 = gelijk met de bovenkant; negatief = lager" />
             <app-measure-field label="Ligger tegen gebouw hoog" [value]="rf('backBeamHeight')" (valueChange)="setRoof('backBeamHeight', $event)" hint="Om te controleren dat de spoor op de ligger blijft" />
@@ -115,6 +119,12 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
         <app-measure-field label="Spoor breed" [value]="rf('rafterWidth')" (valueChange)="setRoof('rafterWidth', $event)" />
         <app-measure-field label="Spoor hoog" [value]="rf('rafterHeight')" (valueChange)="setRoof('rafterHeight', $event)" />
         <app-measure-field label="Sporen h.o.h." [value]="rf('rafterSpacing')" (valueChange)="setRoof('rafterSpacing', $event)" placeholder="0,600" hint="Grootste afstand; buitenste gelijk met de rand" />
+      </div>
+      <div class="fields fields--3">
+        <app-measure-field label="Keep voor diep" [value]="rf('frontNotch')" (valueChange)="setRoof('frontNotch', $event)" [placeholder]="notchPlaceholder(1)" hint="Haaks op de spoor, bij de hiel; leeg = zit over de hele ligger. Dieper = ligger hoger in de spoor" />
+        @if (!item().attached || (item().roof?.backFix ?? 'op') === 'op') {
+          <app-measure-field label="Keep achter diep" [value]="rf('backNotch')" (valueChange)="setRoof('backNotch', $event)" [placeholder]="notchPlaceholder(0)" hint="Leeg = zit over de hele ligger" />
+        }
       </div>
       <div class="segmented segmented--small" role="radiogroup" aria-label="Keep hoogstens">
         <button type="button" role="radio" [attr.aria-checked]="(item().roof?.notch ?? '3') === '3'" (click)="setRoof('notch', '3')">Keep hoogstens 1/3 van de spoor</button>
@@ -210,8 +220,9 @@ export class AfdakPanel {
       );
       if (r.backPost !== null) rows.push({ label: 'Staanders achter, lengte', value: formatLength(r.backPost) });
       for (const st of r.seats) {
-        if (st.against) rows.push({ label: `Spoor tegen ${st.name.toLowerCase()}`, value: `loodsnede ${formatMm(st.plumb)} hoog` });
-        else rows.push({ label: `Keep ${st.name.toLowerCase()}`, value: `zit ${formatMm(st.length)} · ${formatMm(st.depth)} diep · ${formatMm(st.left)} over` });
+        if (st.through) rows.push({ label: `Spoor tegen ${st.name.toLowerCase()}`, value: `kops ${formatMm(st.plumb)} · neus ${formatMm(st.left)} tot de muur` });
+        else if (st.against) rows.push({ label: `Spoor tegen ${st.name.toLowerCase()}`, value: `loodsnede ${formatMm(st.plumb)} hoog` });
+        else rows.push({ label: `Keep ${st.name.toLowerCase()}`, value: `${st.housed ? 'ingekeept · ' : ''}zit ${formatMm(st.length)} · ${formatMm(st.depth)} diep · ${formatMm(st.left)} over` });
       }
     }
     return rows;
@@ -237,6 +248,16 @@ export class AfdakPanel {
   protected toggleWall(side: AfdakSide): void {
     const walls = this.item().walls.includes(side) ? this.item().walls.filter((w) => w !== side) : [...this.item().walls, side];
     this.changed.emit({ ...this.item(), walls });
+  }
+
+  /** The notch depth the app uses when the field is empty. */
+  protected notchPlaceholder(i: 0 | 1): string {
+    const st = this.value()?.rafters?.seats[i];
+    return st && !st.against ? lengthInput(st.depth, 'm') : '';
+  }
+
+  protected setRoofFlag(field: 'backThrough', value: boolean): void {
+    this.changed.emit({ ...this.item(), roof: { ...emptyAfdakRoof(), ...this.item().roof, [field]: value } as AfdakRoofEntry });
   }
 
   protected rf(field: keyof AfdakRoofEntry): string {

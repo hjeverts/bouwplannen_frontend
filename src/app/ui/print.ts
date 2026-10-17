@@ -9,7 +9,9 @@ import { inject, Injectable } from '@angular/core';
 export class PrintService {
   private readonly doc = inject(DOCUMENT);
 
-  print(svg: string): void {
+  /** One sheet, or several sheets that print one per page (and save as one PDF). */
+  print(svg: string | string[]): void {
+    if (Array.isArray(svg)) svg = svg.join('');
     const doc = this.doc;
     const win = doc.defaultView;
     doc.querySelector('.print-root')?.remove();

@@ -198,7 +198,7 @@ export function sheetWithViews(views: View[], shares: number[], meta: SheetMeta,
 
 /** Text that wraps within w (mm) at the given size; returns the SVG and its height. */
 export function panelNote(x: number, y: number, w: number, text: string, size = 2.2): { svg: string; height: number } {
-  const perLine = Math.max(10, Math.floor(w / (size * 0.56)));
+  const perLine = Math.max(10, Math.floor(w / (size * 0.62)));
   const lines: string[] = [];
   let line = '';
   for (const word of text.split(' ')) {

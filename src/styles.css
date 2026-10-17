@@ -1648,19 +1648,23 @@ textarea {
   body.printing .print-root {
     display: block;
     width: 297mm;
-    height: 210mm;
-    overflow: hidden;
     --ink: #1d2321;
     --dim: #1f5f8b;
     --surface: #fff;
     --paper: #fff;
   }
+  /* One sheet per page; a set of sheets prints as several pages (a hair under A4 so none spills over). */
   .print-root svg {
     display: block;
     width: 297mm;
-    height: 210mm;
-    page-break-after: avoid;
-    break-after: avoid;
+    height: 209.6mm;
+    break-inside: avoid;
+    page-break-after: always;
+    break-after: page;
+  }
+  .print-root svg:last-child {
+    page-break-after: auto;
+    break-after: auto;
   }
 }
 .empty-actions {

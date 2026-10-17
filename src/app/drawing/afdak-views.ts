@@ -129,21 +129,21 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
   const S0 = r.start;
 
   // The rafter's outline in the section: top edge, front plumb cut, underside with its notches.
+  /** A notch along the underside, walking from the front to the back: heel, seat, and (housed) the uphill cut. */
+  const notch = (st: typeof front): Point[] => [
+    { x: st.s1, y: zu(st.s1) },
+    { x: st.s1, y: st.z },
+    { x: st.s1 - st.length, y: st.z },
+    ...(st.housed ? [{ x: st.s0, y: zu(st.s0) }] : []),
+  ];
   const outline: Point[] = [
     { x: S0, y: top(S0) },
     { x: D, y: top(D) },
     { x: D, y: zu(D) },
-    { x: front.s1, y: zu(front.s1) },
-    { x: front.s1, y: front.z },
-    { x: front.s1 - front.length, y: front.z },
-    ...(back.against
-      ? []
-      : [
-          { x: back.s1, y: zu(back.s1) },
-          { x: back.s1, y: back.z },
-          { x: back.s1 - back.length, y: back.z },
-        ]),
-    { x: S0, y: zu(S0) },
+    ...notch(front),
+    // Against the beam: no notch; with a nose to the wall the seat on the beam reaches the end.
+    ...(back.through ? [{ x: back.s1, y: zu(back.s1) }, { x: back.s1, y: back.z }, { x: S0, y: back.z }] : back.against ? [] : notch(back)),
+    ...(back.through ? [] : [{ x: S0, y: zu(S0) }]),
   ].filter((p, i, arr) => i === 0 || Math.hypot(p.x - arr[i - 1].x, p.y - arr[i - 1].y) > 1e-6);
 
   // --- Section ---
@@ -196,7 +196,8 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
   const tr = flat({ x: D, y: top(D) });
   prims.push({ t: 'dim', a: tl, b: tr, off: 7, text: mm(tr.x - tl.x) });
   // Underside chain: back end, back notch, front notch, front end.
-  const marks = [S0, ...(back.against ? [] : [back.s1 - back.length, back.s1]), front.s1 - front.length, front.s1, D]
+  const seatMarks = (st: typeof front) => [st.s1 - st.length, st.s1];
+  const marks = [S0, ...(back.through ? [back.s1] : back.against ? [] : seatMarks(back)), ...seatMarks(front), D]
     .map((s) => flat({ x: s, y: zu(s) }).x)
     .filter((v, i, arr) => i === 0 || v - arr[i - 1] > 0.0005);
   for (let i = 0; i + 1 < marks.length; i++) prims.push({ t: 'dim', a: { x: marks[i], y: bl.y }, b: { x: marks[i + 1], y: bl.y }, off: -6, text: mm(marks[i + 1] - marks[i]) });
@@ -207,13 +208,20 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
     const c = flat({ x: st.s1 - st.length, y: st.z });
     const i = flat({ x: st.s1, y: st.z });
     const b = flat({ x: st.s1, y: zu(st.s1) });
-    prims.push({ t: 'line', pts: [c, i, b], cls: 'sym' });
+    prims.push({ t: 'line', pts: [c, i, b, ...(st.housed ? [flat({ x: st.s0, y: zu(st.s0) })] : [])], cls: 'sym' });
     // Seat and plumb cut sizes at the notch, and the depth square to the rafter.
     prims.push({ t: 'dim', a: c, b: i, off: 4, text: mm(st.length), ext: false });
-    prims.push({ t: 'text', at: { x: i.x, y: base }, text: `${st.name.toLowerCase()}: zit ${mm(st.length)}, keep ${mm(st.depth)} diep, ${mm(st.left)} over`, cls: 'label-sub', size: 2.1, dy: -20 - (st === back ? 0 : 3.4), anchor: 'middle' });
+    const text = st.through
+      ? `${st.name.toLowerCase()}: kops ertegen ${mm(st.plumb)} hoog, neus ${mm(st.left)} dik over ${mm(st.length)} tot de muur`
+      : `${st.name.toLowerCase()}: zit ${mm(st.length)}, keep ${mm(st.depth)} diep${st.housed ? ` (ingekeept, loodsneden ${mm(st.plumb)} en ${mm(st.upPlumb ?? 0)})` : ''}, ${mm(st.left)} over`;
+    prims.push({ t: 'text', at: { x: i.x, y: base }, text, cls: 'label-sub', size: 2.1, dy: -20 - (st === back ? 0 : 3.4), anchor: 'middle' });
   }
   // End cuts; against the beam the back cut is the face that is screwed to it.
-  const backCut = back.against ? `loodsnede ${deg(90 - r.pitch)}, ${mm(back.plumb)} hoog, tegen de ligger` : `loodsnede ${deg(90 - r.pitch)}`;
+  const backCut = back.through
+    ? `loodsnede ${deg(90 - r.pitch)} tegen de muur`
+    : back.against
+      ? `loodsnede ${deg(90 - r.pitch)}, ${mm(back.plumb)} hoog, tegen de ligger`
+      : `loodsnede ${deg(90 - r.pitch)}`;
   prims.push({ t: 'text', at: { x: (tl.x + bl.x) / 2, y: (tl.y + bl.y) / 2 }, text: backCut, cls: 'label-sub', size: 2.1, dx: -2, anchor: 'end' });
   prims.push({ t: 'text', at: { x: (tr.x + br.x) / 2, y: (tr.y + br.y) / 2 }, text: `loodsnede ${deg(90 - r.pitch)}`, cls: 'label-sub', size: 2.1, dx: 2, anchor: 'start' });
   const detail: View = { prims, title: `Zaagtekening spoor ${mm(o.rafterWidth!)} × ${mm(h)}`, scalable: true };
@@ -290,18 +298,22 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: Afdak
       [34],
     );
     const [back, front] = r.seats;
-    const b = (v: string) => (back.against ? '–' : v);
+    const b = (v: string) => (back.against && !back.through ? '–' : v);
+    const rows: string[][] = [
+      ['', back.through ? 'achter: neus' : back.against ? 'achter: tegen' : 'achter', 'voor'],
+      [back.through ? 'Zit / neus tot de muur' : 'Zit (horizontaal)', b(mm(back.length)), mm(front.length)],
+      [back.against ? 'Loodrechte snede (achter: kops)' : 'Loodrechte snede', mm(back.plumb), mm(front.plumb)],
+    ];
+    if (back.housed || front.housed) rows.push(['Tweede loodsnede (ingekeept)', back.housed ? mm(back.upPlumb ?? 0) : '–', front.housed ? mm(front.upPlumb ?? 0) : '–']);
+    rows.push(
+      ['Diepte haaks op spoor', b(mm(back.depth)), mm(front.depth)],
+      [back.through ? 'Over (achter: neus dik)' : 'Over boven de keep', b(mm(back.left)), mm(front.left)],
+      ['Ligger breed', mm(back.s1 - back.s0), mm(front.s1 - front.s0)],
+      ['Ligger op de staander', o.plan.attached ? 'tegen muur' : ALIGN[o.beamAlign], ALIGN[o.beamAlign]],
+    );
     table(
       'Kepen',
-      [
-        ['', back.against ? 'achter: tegen' : 'achter', 'voor'],
-        ['Zit (horizontaal)', b(mm(back.length)), mm(front.length)],
-        [back.against ? 'Loodrechte snede (achter: eind)' : 'Loodrechte snede', mm(back.plumb), mm(front.plumb)],
-        ['Diepte haaks op spoor', b(mm(back.depth)), mm(front.depth)],
-        ['Over boven de keep', b(mm(back.left)), mm(front.left)],
-        ['Ligger breed', mm(back.s1 - back.s0), mm(front.s1 - front.s0)],
-        ['Ligger op de staander', o.plan.attached ? 'tegen muur' : ALIGN[o.beamAlign], ALIGN[o.beamAlign]],
-      ],
+      rows,
       [20, 16],
     );
     const hrows: string[][] = [

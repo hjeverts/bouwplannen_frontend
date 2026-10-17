@@ -301,3 +301,66 @@ describe('afdak as part of a lean-to roof', () => {
     expect(computeDak(d).status).toBe('ok');
   });
 });
+
+describe('afdak notch depth and a nose to the wall', () => {
+  const plan = computeAfdak(base);
+  const A = (16.7 * Math.PI) / 180;
+  // A 50 mm wide front beam: automatically the seat covers it, 50·sin 16,7° = 14 mm deep.
+  const thin = { ...roof, pitch: 16.7, beamWidth: 0.05, backWidth: 0.05 };
+
+  it('cuts a deeper notch on request, housed over the beam, so the beam sits higher in the rafter', () => {
+    const auto = computeRafters(plan, thin);
+    expect(auto.seats[1].depth).toBeCloseTo(0.05 * Math.sin(A), 9);
+    expect(auto.seats[1].housed).toBe(false);
+    const deep = computeRafters(plan, { ...thin, frontNotch: 0.04 });
+    const f = deep.seats[1];
+    expect(f.housed).toBe(true);
+    expect(f.length).toBeCloseTo(0.05, 9);
+    expect(f.plumb).toBeCloseTo(0.04 / Math.cos(A), 9);
+    expect(f.upPlumb).toBeCloseTo((0.04 - 0.05 * Math.sin(A)) / Math.cos(A), 9);
+    expect(f.left).toBeCloseTo(0.11, 9);
+    // Same pitch and front height: the roof (and the back) comes lower by the extra plumb depth.
+    expect(auto.backHeight - deep.backHeight).toBeCloseTo((0.04 - 0.05 * Math.sin(A)) / Math.cos(A), 9);
+    expect(deep.undersideAt(f.s1)).toBeCloseTo(2.2 - f.plumb, 9);
+    expect(deep.warnings).toEqual([]);
+    // Deeper than a third of the rafter: a warning.
+    expect(computeRafters(plan, { ...thin, frontNotch: 0.06 }).warnings.some((w) => /dieper dan 1\/3/.test(w))).toBe(true);
+    // A shallow notch on a wide beam: a shorter seat.
+    const shallow = computeRafters(plan, { ...roof, frontNotch: 0.02 }).seats[1];
+    expect(shallow.length).toBeCloseTo(0.02 / Math.sin((18 * Math.PI) / 180), 9);
+  });
+
+  it('runs a nose over the wall beam to the wall', () => {
+    const r = computeRafters(plan, { ...roof, backFix: 'tegen', backOffset: 0.03, backThrough: true });
+    const back = r.seats[0];
+    expect(back.through).toBe(true);
+    expect(r.start).toBe(0);
+    expect(r.length).toBeCloseTo(1.5 / Math.cos((18 * Math.PI) / 180), 9);
+    // Below the beam top the rafter butts the beam: its plumb face; above it a 30 mm nose (square: 28,5).
+    expect(back.plumb).toBeCloseTo(0.15 / Math.cos((18 * Math.PI) / 180) - 0.03, 9);
+    expect(back.left).toBeCloseTo(0.03 * Math.cos((18 * Math.PI) / 180), 9);
+    expect(back.length).toBeCloseTo(0.15, 9);
+    expect(r.ends.back.top - r.backHeight).toBeCloseTo(0.03 + 0.15 * Math.tan((18 * Math.PI) / 180), 9);
+    expect(r.warnings).toEqual([]);
+    expect(computeRafters(plan, { ...roof, backFix: 'tegen', backThrough: true }).warnings.some((w) => /geen neus/.test(w))).toBe(true);
+  });
+
+  it('draws the nose and the housed notch', () => {
+    const item: AfdakEntry = {
+      ...emptyAfdak(),
+      width: '5',
+      depth: '1,5',
+      roof: { ...emptyAfdakRoof(), pitch: '16,7', frontHeight: '2,2', beamWidth: '0,05', beamHeight: '0,15', backWidth: '0,05', rafterWidth: '0,05', rafterHeight: '0,15', backFix: 'tegen', backOffset: '0,03', backThrough: true, frontNotch: '0,04' },
+    };
+    const r = computeAfdakEntry(item);
+    if (r.status !== 'ok') throw new Error(r.message);
+    expect(r.value.roofMessage).toBeNull();
+    const texts = afdakRafterView(r.value)!.prims.flatMap((p) => (p.t === 'dim' || p.t === 'text' ? [p.text] : []));
+    expect(texts.some((t) => /neus 29 dik over 50 tot de muur/.test(t))).toBe(true);
+    expect(texts.some((t) => /ingekeept/.test(t))).toBe(true);
+    const sheet = afdakRafterSheet(r.value, { project: 'P', subject: 'A' })!;
+    expect(sheet).toContain('achter: neus');
+    expect(sheet).toContain('Tweede loodsnede (ingekeept)');
+    expect(sheet).not.toContain('NaN');
+  });
+});

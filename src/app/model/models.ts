@@ -356,6 +356,11 @@ export interface AfdakRoofEntry {
   backBeamHeight?: string;
   /** Beam on its posts: centred (default), flush with the front or the back of the posts. */
   beamAlign?: 'midden' | 'voor' | 'achter';
+  /** Depth of the notch at the heel, square to the rafter (empty = automatic): front beam, and back beam when on top. */
+  frontNotch?: string;
+  backNotch?: string;
+  /** 'tegen': above the beam the rafter runs on to the wall, for the top batten. */
+  backThrough?: boolean;
 }
 
 export function emptyAfdakRoof(): AfdakRoofEntry {

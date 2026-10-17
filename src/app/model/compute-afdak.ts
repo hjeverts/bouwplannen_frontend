@@ -103,6 +103,9 @@ export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
         backOffset: sizes.backOffset,
         backBeamHeight: sizes.backBeamHeight,
         beamAlign: r.beamAlign ?? 'midden',
+        frontNotch: len(r.frontNotch, 'Keep voor'),
+        backNotch: against ? null : len(r.backNotch, 'Keep achter'),
+        backThrough: against && !!r.backThrough,
       });
     } catch (e) {
       if (!(e instanceof Missing || e instanceof RangeError)) throw e;

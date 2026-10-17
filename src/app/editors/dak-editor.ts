@@ -1,5 +1,6 @@
 import { Component, computed, inject, input, output } from '@angular/core';
 import { roofSheet } from '../drawing/roof-sheet';
+import { afdakPlanSheet, afdakRafterSheet } from '../drawing/afdak-views';
 import { AfdakPanel } from './afdak-editor';
 import { afdakLayers } from '../model/compute';
 import { ProjectStore } from '../model/project-store';
@@ -170,7 +171,12 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
     @if (outcome().status === 'ok') {
       <div class="opening-actions">
         <button type="button" class="btn" (click)="printSheet()">Spant printen (A4)</button>
-        <span class="hint">Doorsnede op schaal met alle maten, hoogtes, zaagsneden, latverdeling en materiaal.</span>
+        @if (afdakMode()) {
+          <button type="button" class="btn" (click)="printAll()">Alles printen ({{ allSheets().length }} pagina's)</button>
+          <span class="hint">Uitzettekening, zaagtekening van de spoor en het spant met dakopbouw, latverdeling en materiaal.</span>
+        } @else {
+          <span class="hint">Doorsnede op schaal met alle maten, hoogtes, zaagsneden, latverdeling en materiaal.</span>
+        }
       </div>
     }
 
@@ -286,6 +292,27 @@ export class DakEditor {
     const o = this.outcome();
     if (o.status !== 'ok') return null;
     return roofSheet(o.value, { project: this.store.currentProject()?.name ?? '', subject: this.item().name || 'Kap' });
+  }
+
+  /** Every sheet of this roof: for an afdak the set-out and rafter drawings, then the roof itself. */
+  protected readonly allSheets = computed(() => {
+    const o = this.outcome();
+    if (o.status !== 'ok') return [];
+    const meta = (subject: string) => ({ project: this.store.currentProject()?.name ?? '', subject: `${this.item().name || 'Kap'} · ${subject}` });
+    const sheets: string[] = [];
+    if (o.value.afdak) {
+      sheets.push(afdakPlanSheet(o.value.afdak, meta('uitzetten')));
+      const saw = afdakRafterSheet(o.value.afdak, meta('spoor'), afdakLayers(o.value));
+      if (saw) sheets.push(saw);
+    }
+    const roof = this.sheet();
+    if (roof) sheets.push(roof);
+    return sheets;
+  });
+
+  protected printAll(): void {
+    const sheets = this.allSheets();
+    if (sheets.length) this.printer.print(sheets);
   }
 
   protected printSheet(): void {

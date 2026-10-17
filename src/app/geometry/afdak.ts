@@ -200,6 +200,12 @@ export interface AfdakRoofInput {
   backNotch?: number | null;
   /** 'tegen': above the beam the rafter runs on to the wall (a nose over the beam). */
   backThrough?: boolean;
+  /**
+   * Pockets cut into the top of the beam at every rafter, rafter-wide, this deep (plumb, level
+   * bottom): the rafter sits that much lower in the beam, so its own notch can stay smaller.
+   */
+  frontPocket?: number;
+  backPocket?: number;
 }
 
 export interface Seat {
@@ -228,6 +234,9 @@ export interface Seat {
   through?: boolean;
   /** A depth was asked for that is deeper than the allowed part of the rafter. */
   tooDeep?: boolean;
+  /** Pocket in the beam at each rafter (plumb depth); the seat lies at `floor` = z − pocket. */
+  pocket: number;
+  floor: number;
 }
 
 export interface Rafter {
@@ -261,7 +270,7 @@ const DEG = Math.PI / 180;
  * A seat of length L cuts L·sin a deep; deeper than the width gives, the rafter is housed over the
  * beam with a second plumb cut on the uphill side.
  */
-function seatOn(name: string, s0: number, s1: number, z: number, h: number, a: number, fraction: number, wanted: number | null = null): Seat {
+function seatOn(name: string, s0: number, s1: number, z: number, h: number, a: number, fraction: number, wanted: number | null = null, pocket = 0): Seat {
   const width = s1 - s0;
   const max = fraction * h;
   const full = width * Math.sin(a);
@@ -281,6 +290,8 @@ function seatOn(name: string, s0: number, s1: number, z: number, h: number, a: n
     housed,
     upPlumb: housed ? (depth - full) / Math.cos(a) : 0,
     tooDeep: wanted !== null && depth > max + 1e-9,
+    pocket,
+    floor: z - pocket,
   };
 }
 
@@ -308,17 +319,20 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
   const against = plan.attached && roof.backFix === 'tegen';
   const through = against && !!roof.backThrough;
   const offset = roof.backOffset ?? 0;
-  const frontSeat = (a: number, z = 0) => seatOn('Voorligger', f0, f1, z, h, a, roof.notchFraction, roof.frontNotch ?? null);
-  const backSeat = (a: number, z = 0) => seatOn(plan.attached ? 'Ligger tegen gebouw' : 'Achterligger', b0, b1, z, h, a, roof.notchFraction, roof.backNotch ?? null);
+  const fPocket = Math.max(0, roof.frontPocket ?? 0);
+  const bPocket = against ? 0 : Math.max(0, roof.backPocket ?? 0);
+  if (fPocket >= roof.beamHeight) throw new RangeError('De inkeping in de voorligger is dieper dan de ligger hoog is.');
+  const frontSeat = (a: number, z = 0) => seatOn('Voorligger', f0, f1, z, h, a, roof.notchFraction, roof.frontNotch ?? null, fPocket);
+  const backSeat = (a: number, z = 0) => seatOn(plan.attached ? 'Ligger tegen gebouw' : 'Achterligger', b0, b1, z, h, a, roof.notchFraction, roof.backNotch ?? null, bPocket);
   /**
    * Height difference between the back and the front support tops for pitch a. The underside of the
    * rafter is at each heel (s1) its plumb cut below the top of the support.
    */
   const rise = (a: number) => {
-    const fp = frontSeat(a).plumb;
+    const fp = frontSeat(a).plumb + fPocket;
     // Against the beam: the rafter's top at the beam face is `offset` above the beam top.
     if (against) return Math.tan(a) * (f1 - b1) - fp + h / Math.cos(a) - offset;
-    return Math.tan(a) * (f1 - b1) - fp + backSeat(a).plumb;
+    return Math.tan(a) * (f1 - b1) - fp + backSeat(a).plumb + bPocket;
   };
   let a: number;
   let zf: number;
@@ -358,11 +372,11 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
   const back: Seat = against
     ? through
       ? // A nose over the beam to the wall: the seat on the beam top reaches the rafter's end.
-        { name: 'Ligger tegen gebouw', s0: b0, s1: b1, z: zb, length: b1 - b0, plumb: endCut, depth: endCut * Math.cos(a), left: offset * Math.cos(a), limited: false, against: true, through: true }
-      : { name: 'Ligger tegen gebouw', s0: b0, s1: b1, z: zb, length: 0, plumb: h / Math.cos(a), depth: 0, left: h, limited: false, against: true }
+        { name: 'Ligger tegen gebouw', s0: b0, s1: b1, z: zb, length: b1 - b0, plumb: endCut, depth: endCut * Math.cos(a), left: offset * Math.cos(a), limited: false, against: true, through: true, pocket: 0, floor: zb }
+      : { name: 'Ligger tegen gebouw', s0: b0, s1: b1, z: zb, length: 0, plumb: h / Math.cos(a), depth: 0, left: h, limited: false, against: true, pocket: 0, floor: zb }
     : backSeat(a, zb);
-  // The underside passes the front heel its plumb cut below the beam top.
-  const undersideAt = (s: number) => zf - front.plumb - Math.tan(a) * (s - f1);
+  // The underside passes the front heel its plumb cut below the seat (the beam top, or its pocket).
+  const undersideAt = (s: number) => front.floor - front.plumb - Math.tan(a) * (s - f1);
   const start = against && !through ? b1 : 0;
   if (through && offset <= 0.005) warnings.push('Ligger tegen gebouw: zet de bovenkant van de spoor boven de ligger (bijvoorbeeld 30 mm), anders is er geen neus die tot de muur doorloopt.');
   const length = (plan.depth - start) / Math.cos(a);
@@ -377,6 +391,15 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
     if (st.length < Math.min(0.05, st.s1 - st.s0) - 1e-9) warnings.push(`${st.name}: de spoor ligt maar ${Math.round(st.length * 1000)} mm op; dat is weinig. Een hogere spoor of minder helling geeft meer oplegging.`);
     else if (st.limited) warnings.push(`${st.name}: de keep is beperkt tot ${Math.round(st.depth * 1000)} mm diep (${roof.notchFraction === 0.25 ? '1/4' : '1/3'} van de spoor), de zit is daardoor ${Math.round(st.length * 1000)} mm in plaats van de volle ${Math.round((st.s1 - st.s0) * 1000)} mm.`);
     if (st.tooDeep) warnings.push(`${st.name}: een keep van ${Math.round(st.depth * 1000)} mm is dieper dan ${roof.notchFraction === 0.25 ? '1/4' : '1/3'} van de spoor (${Math.round(roof.notchFraction * h * 1000)} mm); er blijft ${Math.round(st.left * 1000)} mm over. Reken de spoor na of maak de keep minder diep.`);
+  }
+
+  // A pocket takes wood out of the beam: a beam that spans between posts keeps at least 3/4.
+  if (fPocket > roof.beamHeight / 4 + 1e-9) warnings.push(`Voorligger: een inkeping van ${Math.round(fPocket * 1000)} mm is meer dan 1/4 van de ligger (${Math.round(roof.beamHeight * 1000)} mm); de ligger overspant tussen de staanders, reken hem na.`);
+  if (bPocket > 0) {
+    const bh = plan.attached ? roof.backBeamHeight : roof.beamHeight;
+    if (bh && bPocket >= bh) throw new RangeError('De inkeping in de ligger achter is dieper dan de ligger hoog is.');
+    if (bh && !plan.attached && bPocket > bh / 4 + 1e-9) warnings.push(`Achterligger: een inkeping van ${Math.round(bPocket * 1000)} mm is meer dan 1/4 van de ligger; reken hem na.`);
+    if (bh && plan.attached && bPocket > bh / 2 + 1e-9) warnings.push(`Ligger tegen gebouw: een inkeping van ${Math.round(bPocket * 1000)} mm is meer dan de helft van de ligger; houd genoeg hout over voor de bevestiging aan de muur.`);
   }
 
   // Rafters along the width: the outer ones flush with the edges.
@@ -416,8 +439,8 @@ export function rafterOutline(r: Rafter, depth: number, h: number): { x: number;
   /** A notch along the underside, walking from the front to the back: heel, seat, and (housed) the uphill cut. */
   const notch = (st: Seat) => [
     { x: st.s1, y: zu(st.s1) },
-    { x: st.s1, y: st.z },
-    { x: st.s1 - st.length, y: st.z },
+    { x: st.s1, y: st.floor },
+    { x: st.s1 - st.length, y: st.floor },
     ...(st.housed ? [{ x: st.s0, y: zu(st.s0) }] : []),
   ];
   return [

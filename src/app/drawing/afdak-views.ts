@@ -142,6 +142,8 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
   prims.push({ t: 'poly', rings: [rect(front.s0, front.z - bh, front.s1, front.z)], cls: 'f', fill: 'rgb(200,178,138)' });
   const backBeam = plan.attached ? (o.backBeamHeight ?? Math.min(bh, 0.15)) : bh;
   prims.push({ t: 'poly', rings: [rect(back.s0, back.z - backBeam, back.s1, back.z)], cls: 'f', fill: 'rgb(200,178,138)' });
+  // Pockets in the beams: the level bottom of the cut, seen through the rafter's side.
+  for (const st of [front, back]) if (st.pocket > 1e-6) prims.push({ t: 'line', pts: [{ x: st.s0, y: st.floor }, { x: st.s1, y: st.floor }], cls: 'sym-thin' });
   prims.push({ t: 'poly', rings: [outline], cls: 'f', fill: WOOD });
   // The roof build-up on the rafters: decking, counter battens, battens, tiles.
   for (const l of layers) prims.push({ t: 'line', pts: l.pts, cls: l.name === 'Bovenkant pannen' ? 'sym' : 'sym-thin' });
@@ -190,15 +192,15 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
   // Each notch: seat length and plumb cut, and the depth square to the rafter.
   for (const st of [back, front]) {
     if (st.length < 1e-4) continue;
-    const c = flat({ x: st.s1 - st.length, y: st.z });
-    const i = flat({ x: st.s1, y: st.z });
+    const c = flat({ x: st.s1 - st.length, y: st.floor });
+    const i = flat({ x: st.s1, y: st.floor });
     const b = flat({ x: st.s1, y: zu(st.s1) });
     prims.push({ t: 'line', pts: [c, i, b, ...(st.housed ? [flat({ x: st.s0, y: zu(st.s0) })] : [])], cls: 'sym' });
     // Seat and plumb cut sizes at the notch, and the depth square to the rafter.
     prims.push({ t: 'dim', a: c, b: i, off: 4, text: mm(st.length), ext: false });
     const text = st.through
       ? `${st.name.toLowerCase()}: kops ertegen ${mm(st.plumb)} hoog, neus ${mm(st.left)} dik over ${mm(st.length)} tot de muur`
-      : `${st.name.toLowerCase()}: zit ${mm(st.length)}, keep ${mm(st.depth)} diep${st.housed ? ` (ingekeept, loodsneden ${mm(st.plumb)} en ${mm(st.upPlumb ?? 0)})` : ''}, ${mm(st.left)} over`;
+      : `${st.name.toLowerCase()}: zit ${mm(st.length)}, keep ${mm(st.depth)} diep${st.housed ? ` (ingekeept, loodsneden ${mm(st.plumb)} en ${mm(st.upPlumb ?? 0)})` : ''}, ${mm(st.left)} over${st.pocket > 0 ? `; ligger ${mm(st.pocket)} ingekeept` : ''}`;
     prims.push({ t: 'text', at: { x: i.x, y: base }, text, cls: 'label-sub', size: 2.1, dy: -20 - (st === back ? 0 : 3.4), anchor: 'middle' });
   }
   // End cuts; against the beam the back cut is the face that is screwed to it.
@@ -289,6 +291,7 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: Afdak
       [back.through ? 'Zit / neus tot de muur' : 'Zit (horizontaal)', b(mm(back.length)), mm(front.length)],
       [back.against ? 'Loodrechte snede (achter: kops)' : 'Loodrechte snede', mm(back.plumb), mm(front.plumb)],
     ];
+    if (back.pocket > 0 || front.pocket > 0) rows.push([`Inkeping ligger (${mm(o.rafterWidth ?? 0)} breed)`, b(back.pocket > 0 ? mm(back.pocket) : '–'), front.pocket > 0 ? mm(front.pocket) : '–']);
     if (back.housed || front.housed) rows.push(['Tweede loodsnede (ingekeept)', back.housed ? mm(back.upPlumb ?? 0) : '–', front.housed ? mm(front.upPlumb ?? 0) : '–']);
     rows.push(
       ['Diepte haaks op spoor', b(mm(back.depth)), mm(front.depth)],

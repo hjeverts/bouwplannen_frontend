@@ -206,12 +206,30 @@ function afdakFrame(dak: DakResult, o: AfdakOutcome): Frame {
     frame.members.push({ kind: 'post', poly: rect(u(p.s + pd / 2), 0, u(p.s - pd / 2), height), w0: p.x - pw / 2, w1: p.x + pw / 2 });
   }
   const bh = o.beamHeight ?? 0;
-  frame.members.push({ kind: 'beam', poly: rect(u(front.s1), front.z - bh, u(front.s0), front.z), w0: 0, w1: W });
+  const rw = o.rafterWidth ?? 0;
+  /** A beam along the width, with a pocket under every rafter when it has one. */
+  const beam = (st: typeof front, height: number) => {
+    const full = rect(u(st.s1), st.z - height, u(st.s0), st.z);
+    if (st.pocket <= 1e-6) {
+      frame.members.push({ kind: 'beam', poly: full, w0: 0, w1: W });
+      return;
+    }
+    const low = rect(u(st.s1), st.z - height, u(st.s0), st.floor);
+    let w = 0;
+    for (const x of r.xs) {
+      const a = Math.max(0, x - rw / 2);
+      const b = Math.min(W, x + rw / 2);
+      if (a > w + 1e-6) frame.members.push({ kind: 'beam', poly: full, w0: w, w1: a });
+      frame.members.push({ kind: 'beam', poly: low, w0: a, w1: b });
+      w = b;
+    }
+    if (W > w + 1e-6) frame.members.push({ kind: 'beam', poly: full, w0: w, w1: W });
+  };
+  beam(front, bh);
   const backBeam = plan.attached ? (o.backBeamHeight ?? Math.min(bh, 0.15)) : bh;
-  frame.members.push({ kind: 'beam', poly: rect(u(back.s1), back.z - backBeam, u(back.s0), back.z), w0: 0, w1: W });
+  beam(back, backBeam);
 
   const h = o.rafterHeight ?? 0;
-  const rw = o.rafterWidth ?? 0;
   const outline = rafterOutline(r, D, h).map((p) => ({ x: u(p.x), y: p.y }));
   const topAt = (sv: number) => r.undersideAt(sv) + h / Math.cos((r.pitch * Math.PI) / 180);
   frame.planes = planesOf([

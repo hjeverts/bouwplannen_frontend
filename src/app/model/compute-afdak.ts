@@ -114,6 +114,8 @@ export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
         frontNotch: len(r.frontNotch, 'Keep voor'),
         backNotch: against ? null : len(r.backNotch, 'Keep achter'),
         backThrough: against && !!r.backThrough,
+        frontPocket: len(r.frontPocket, 'Inkeping in voorligger') ?? 0,
+        backPocket: against ? 0 : (len(r.backPocket, 'Inkeping in ligger achter') ?? 0),
       });
     } catch (e) {
       if (!(e instanceof Missing || e instanceof RangeError)) throw e;

@@ -367,6 +367,9 @@ export interface AfdakRoofEntry {
   /** Depth of the notch at the heel, square to the rafter (empty = automatic): front beam, and back beam when on top. */
   frontNotch?: string;
   backNotch?: string;
+  /** Pockets in the beams at every rafter, plumb depth (empty = none). */
+  frontPocket?: string;
+  backPocket?: string;
   /** 'tegen': above the beam the rafter runs on to the wall, for the top batten. */
   backThrough?: boolean;
 }

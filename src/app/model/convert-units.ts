@@ -139,6 +139,8 @@ function convertAfdak(a: AfdakEntry, c: (t: string | undefined) => string | unde
       backBeamHeight: c(a.roof.backBeamHeight),
       frontNotch: c(a.roof.frontNotch),
       backNotch: c(a.roof.backNotch),
+      frontPocket: c(a.roof.frontPocket),
+      backPocket: c(a.roof.backPocket),
     },
   };
 }

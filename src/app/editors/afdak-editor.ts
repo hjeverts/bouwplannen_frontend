@@ -140,6 +140,24 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
           <app-measure-field label="Keep achter diep" [value]="rf('backNotch')" (valueChange)="setRoof('backNotch', $event)" [placeholder]="notchPlaceholder(0)" hint="Leeg = zit over de hele ligger" />
         }
       </div>
+      <div class="fields fields--3">
+        <app-measure-field
+          label="Inkeping in voorligger"
+          [value]="rf('frontPocket')"
+          (valueChange)="setRoof('frontPocket', $event)"
+          placeholder="0"
+          hint="Sleuf per spoor in de bovenkant van de ligger, zo breed als de spoor. De spoor zakt erin: minder keep in de spoor nodig"
+        />
+        @if (!item().attached || (item().roof?.backFix ?? 'op') === 'op') {
+          <app-measure-field
+            [label]="item().attached ? 'Inkeping in ligger tegen gebouw' : 'Inkeping in achterligger'"
+            [value]="rf('backPocket')"
+            (valueChange)="setRoof('backPocket', $event)"
+            placeholder="0"
+            hint="Loodrecht gemeten, vlakke bodem"
+          />
+        }
+      </div>
       <div class="segmented segmented--small" role="radiogroup" aria-label="Keep hoogstens">
         <button type="button" role="radio" [attr.aria-checked]="(item().roof?.notch ?? '3') === '3'" (click)="setRoof('notch', '3')">Keep hoogstens 1/3 van de spoor</button>
         <button type="button" role="radio" [attr.aria-checked]="item().roof?.notch === '4'" (click)="setRoof('notch', '4')">Hoogstens 1/4</button>
@@ -237,6 +255,7 @@ export class AfdakPanel {
         if (st.through) rows.push({ label: `Spoor tegen ${st.name.toLowerCase()}`, value: `kops ${formatMm(st.plumb)} · neus ${formatMm(st.left)} tot de muur` });
         else if (st.against) rows.push({ label: `Spoor tegen ${st.name.toLowerCase()}`, value: `loodsnede ${formatMm(st.plumb)} hoog` });
         else rows.push({ label: `Keep ${st.name.toLowerCase()}`, value: `${st.housed ? 'ingekeept · ' : ''}zit ${formatMm(st.length)} · ${formatMm(st.depth)} diep · ${formatMm(st.left)} over` });
+        if (st.pocket > 0) rows.push({ label: `Inkeping in ${st.name.toLowerCase()}`, value: `${r.xs.length} × ${formatMm(st.pocket)} diep, ${formatMm(v.rafterWidth ?? 0)} breed, ${formatLength(r.spacing)} h.o.h.` });
       }
     }
     return rows;

@@ -3,7 +3,8 @@ import { afdakPlanSheet, afdakPlanView, afdakRafterSheet, afdakRafterView } from
 import { computeAfdakEntry } from '../model/compute-afdak';
 import { afdakLayers, computeDak } from '../model/compute';
 import { AfdakEntry, createItem, DakItem, emptyAfdak, emptyAfdakRoof, emptyBuildup, emptyTiles, migrateProject } from '../model/models';
-import { AfdakInput, computeAfdak, computeRafters } from './afdak';
+import { AfdakInput, computeAfdak, computeRafters, rafterOutline } from './afdak';
+import { buildFrame } from './frame3d';
 
 /** 5 m × 1,5 m against a building, three 150 × 150 posts at the front, no overhang. */
 const base: AfdakInput = {
@@ -399,5 +400,63 @@ describe('afdak sized by its construction', () => {
   it('keeps old afdaks measured edge to edge', () => {
     const p = plan({ ...base, sizeOf: undefined });
     expect([p.width, p.depth]).toEqual([5, 1.5]);
+  });
+});
+
+describe('afdak pockets in the beams', () => {
+  const plan = computeAfdak(base);
+  const thin = { ...roof, pitch: 16.7, beamWidth: 0.05, backWidth: 0.05 };
+
+  it('lets the rafter sink into the beam: same notch in the rafter, beam higher in the roof', () => {
+    const plain = computeRafters(plan, thin);
+    const pocket = computeRafters(plan, { ...thin, frontPocket: 0.03, backPocket: 0.02 });
+    const [b0, f0] = plain.seats;
+    const [b1, f1] = pocket.seats;
+    // The rafter's own notch does not change.
+    expect([f1.depth, f1.length, b1.depth]).toEqual([expect.closeTo(f0.depth, 12), expect.closeTo(f0.length, 12), expect.closeTo(b0.depth, 12)]);
+    // The seat lies at the bottom of the pocket.
+    expect(f1.floor).toBeCloseTo(f1.z - 0.03, 12);
+    expect(b1.floor).toBeCloseTo(b1.z - 0.02, 12);
+    // Same front beam top and pitch: the whole roof comes 30 mm lower over the front beam ...
+    expect(pocket.undersideAt(f1.s1)).toBeCloseTo(plain.undersideAt(f0.s1) - 0.03, 12);
+    // ... and the back beam top comes out 20 mm higher than the rafter would otherwise need.
+    expect(pocket.backHeight - plain.backHeight).toBeCloseTo(-0.03 + 0.02, 12);
+    // The rafter's outline rests on the pocket bottoms.
+    const outline = rafterOutline(pocket, plan.depth, 0.15);
+    expect(outline.filter((p) => Math.abs(p.y - f1.floor) < 1e-9).length).toBe(2);
+    expect(outline.filter((p) => Math.abs(p.y - b1.floor) < 1e-9).length).toBe(2);
+  });
+
+  it('warns when a pocket takes too much out of a beam, and refuses one deeper than the beam', () => {
+    expect(computeRafters(plan, { ...thin, frontPocket: 0.03 }).warnings.some((w) => /Voorligger: een inkeping/.test(w))).toBe(false);
+    expect(computeRafters(plan, { ...thin, frontPocket: 0.05 }).warnings.some((w) => /Voorligger: een inkeping van 50 mm/.test(w))).toBe(true);
+    expect(() => computeRafters(plan, { ...thin, frontPocket: 0.15 })).toThrow(/dieper dan de ligger/);
+  });
+
+  it('has no pocket where the rafter ends against the wall beam', () => {
+    const r = computeRafters(plan, { ...thin, backFix: 'tegen', backPocket: 0.03 });
+    expect(r.seats[0].pocket).toBe(0);
+  });
+
+  it('reads the pockets from the entry and draws them in the beams', () => {
+    const entry: AfdakEntry = {
+      ...emptyAfdak(),
+      sizeOf: 'totaal',
+      width: '5',
+      depth: '1,5',
+      roof: { ...emptyAfdakRoof(), pitch: '18', frontHeight: '2,2', beamHeight: '0,15', backWidth: '0,15', rafterWidth: '0,05', rafterHeight: '0,15', frontPocket: '20 mm', backPocket: '0,03' },
+    };
+    const o = computeAfdakEntry(entry);
+    if (o.status !== 'ok') throw new Error(o.message);
+    const [back, front] = o.value.rafters!.seats;
+    expect([front.pocket, back.pocket]).toEqual([expect.closeTo(0.02, 12), expect.closeTo(0.03, 12)]);
+    const saw = afdakRafterSheet(o.value, { project: 'Schuur', subject: 'Afdak' })!;
+    expect(saw).toContain('Inkeping ligger');
+    const d = computeDak({ ...(createItem('dak') as DakItem), roofType: 'lessenaarsdak', afdakOn: true, afdak: entry });
+    if (d.status !== 'ok') throw new Error(d.message);
+    const beams = buildFrame(d.value).members.filter((m) => m.kind === 'beam');
+    // Each beam: a pocket under every rafter, full height between them (outer rafters flush with the edges).
+    const n = o.value.rafters!.xs.length;
+    expect(beams.length).toBe(2 * (n + n - 1));
   });
 });

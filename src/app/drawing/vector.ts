@@ -271,7 +271,7 @@ export function drawingStyle(k: number): string {
 .bp .bp-muted{fill-opacity:.7}
 .bp .bp-on-dark{fill:#fff}
 .bp .bp-title{font-family:var(--font-display,'Barlow Condensed',sans-serif);font-weight:700;letter-spacing:.02em}
-.bp .bp-solid{stroke-width:${w(0.1)};stroke-linejoin:round}
+.bp .bp-solid{stroke-width:${w(0.22)};stroke-linejoin:round}
 .bp .bp-edge{fill:none;stroke:#3b2f24;stroke-width:${w(0.12)};stroke-linecap:round}
 .bp .bp-ghost{fill-opacity:.13;stroke:currentColor;stroke-opacity:.35;stroke-width:${w(0.12)};stroke-linejoin:round}
 .bp .bp-ghost-faint{fill-opacity:.06;stroke-opacity:.2}

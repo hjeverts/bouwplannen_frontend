@@ -59,6 +59,8 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
           counter: c(item.buildup.counter)!,
           batten: c(item.buildup.batten)!,
           tile: c(item.buildup.tile)!,
+          rafterWidth: c(item.buildup.rafterWidth),
+          rafterSpacing: c(item.buildup.rafterSpacing),
         },
         afdak: item.afdak && convertAfdak(item.afdak, c),
         tiles: item.tiles && {

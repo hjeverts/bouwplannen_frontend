@@ -364,3 +364,40 @@ describe('afdak notch depth and a nose to the wall', () => {
     expect(sheet).not.toContain('NaN');
   });
 });
+
+describe('afdak sized by its construction', () => {
+  const base: AfdakEntry = { ...emptyAfdak(), sizeOf: 'constructie', width: '5', depth: '1,5', overhangSide: '0,2', overhangFront: '0,3' };
+  const plan = (e: AfdakEntry) => {
+    const r = computeAfdakEntry(e);
+    if (r.status !== 'ok') throw new Error(r.message);
+    return r.value.plan;
+  };
+
+  it('adds the overhangs to the construction for the whole roof', () => {
+    const p = plan(base);
+    expect(p.width).toBeCloseTo(5.4, 9);
+    expect(p.depth).toBeCloseTo(1.8, 9);
+    // The outside of the front posts lies 1.5 from the wall, the outer posts' outsides 5 apart.
+    expect(p.frontRow + p.postDepth / 2).toBeCloseTo(1.5, 9);
+    const xs = p.posts.map((q) => q.x);
+    expect(Math.max(...xs) - Math.min(...xs) + p.postWidth).toBeCloseTo(5, 9);
+  });
+
+  it('keeps the posts in place when only an overhang changes', () => {
+    const a = plan(base);
+    const b = plan({ ...base, overhangFront: '0,45', overhangSide: '0,1' });
+    expect(b.depth).toBeCloseTo(1.95, 9);
+    expect(b.frontRow).toBeCloseTo(a.frontRow, 9);
+    expect(b.posts.map((q) => q.x - 0.1)).toEqual(a.posts.map((q) => expect.closeTo(q.x - 0.2, 9)));
+  });
+
+  it('counts the back overhang too when free-standing', () => {
+    const p = plan({ ...base, attached: false, postsBack: '3', overhangBack: '0,25' });
+    expect(p.depth).toBeCloseTo(2.05, 9);
+  });
+
+  it('keeps old afdaks measured edge to edge', () => {
+    const p = plan({ ...base, sizeOf: undefined });
+    expect([p.width, p.depth]).toEqual([5, 1.5]);
+  });
+});

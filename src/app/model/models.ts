@@ -104,6 +104,9 @@ export interface BuildupEntry {
   counter: string;
   batten: string;
   tile: string;
+  /** Rafter width and centre-to-centre spacing (for the 3D construction of a roof that is not an afdak). */
+  rafterWidth?: string;
+  rafterSpacing?: string;
 }
 
 export function emptyBuildup(): BuildupEntry {
@@ -309,6 +312,11 @@ export type AfdakSide = 'links' | 'rechts' | 'voor' | 'achter';
 export interface AfdakEntry {
   width: string;
   depth: string;
+  /**
+   * What width and depth measure: 'constructie' = the posts (outside to outside, wall to the
+   * outside of the front posts), the overhangs come on top; 'totaal' (or absent) = the roof edge to edge.
+   */
+  sizeOf?: 'constructie' | 'totaal';
   /** Against a building at the back: no posts there, set out from the wall. */
   attached: boolean;
   /** Along the wall from the corner of the building to the left edge of the roof (optional). */
@@ -371,6 +379,7 @@ export function emptyAfdak(): AfdakEntry {
   return {
     width: '',
     depth: '',
+    sizeOf: 'constructie',
     attached: true,
     wallOffset: '',
     postWidth: '0,150',

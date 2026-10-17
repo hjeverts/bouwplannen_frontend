@@ -44,10 +44,18 @@ function count(text: string, label: string): number {
 export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
   let plan: AfdakResult;
   try {
-    const width = len(item.width, 'Breedte');
-    const depth = len(item.depth, 'Diepte');
+    let width = len(item.width, 'Breedte');
+    let depth = len(item.depth, 'Diepte');
     if (width === null || depth === null) return { status: 'incomplete', message: 'Vul de breedte en de diepte van het afdak in.' };
     const pw = need(len(item.postWidth, 'Staander'), 'de maat van de staanders');
+    const side = len(item.overhangSide, 'Overstek zijkant', 0)!;
+    const frontOver = len(item.overhangFront, 'Overstek voor', 0)!;
+    const backOver = item.attached ? 0 : len(item.overhangBack, 'Overstek achter', 0)!;
+    // The construction measured: the overhangs come on top, so changing one leaves the posts where they are.
+    if (item.sizeOf === 'constructie') {
+      width += 2 * side;
+      depth += frontOver + backOver;
+    }
     plan = computeAfdak({
       width,
       depth,
@@ -57,9 +65,9 @@ export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
       postDepth: len(item.postDepth, 'Staander diepte', pw)!,
       postsFront: count(item.postsFront, 'Staanders voor'),
       postsBack: item.attached ? 1 : count(item.postsBack, 'Staanders achter'),
-      overhangSide: len(item.overhangSide, 'Overstek zijkant', 0)!,
-      overhangFront: len(item.overhangFront, 'Overstek voor', 0)!,
-      overhangBack: item.attached ? 0 : len(item.overhangBack, 'Overstek achter', 0)!,
+      overhangSide: side,
+      overhangFront: frontOver,
+      overhangBack: backOver,
       footing: len(item.footing, 'Poer'),
       walls: item.walls ?? [],
       wallThickness: len(item.wallThickness, 'Wanddikte', 0.1)!,

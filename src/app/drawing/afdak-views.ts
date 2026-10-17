@@ -4,6 +4,7 @@
  * the beams and posts, and the rafter laid flat with its end cuts and seat notches, to saw from.
  */
 import { Point } from '../geometry/geometry';
+import { rafterOutline } from '../geometry/afdak';
 import { AfdakOutcome } from '../model/compute-afdak';
 import { panelNote, panelTable, SheetMeta, sheetWithPanel, sheetWithViews } from './sheet';
 import { Prim, View } from './vector';
@@ -128,23 +129,7 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
   // Back end: the wall or back edge, or the face of the beam the rafter is fixed against.
   const S0 = r.start;
 
-  // The rafter's outline in the section: top edge, front plumb cut, underside with its notches.
-  /** A notch along the underside, walking from the front to the back: heel, seat, and (housed) the uphill cut. */
-  const notch = (st: typeof front): Point[] => [
-    { x: st.s1, y: zu(st.s1) },
-    { x: st.s1, y: st.z },
-    { x: st.s1 - st.length, y: st.z },
-    ...(st.housed ? [{ x: st.s0, y: zu(st.s0) }] : []),
-  ];
-  const outline: Point[] = [
-    { x: S0, y: top(S0) },
-    { x: D, y: top(D) },
-    { x: D, y: zu(D) },
-    ...notch(front),
-    // Against the beam: no notch; with a nose to the wall the seat on the beam reaches the end.
-    ...(back.through ? [{ x: back.s1, y: zu(back.s1) }, { x: back.s1, y: back.z }, { x: S0, y: back.z }] : back.against ? [] : notch(back)),
-    ...(back.through ? [] : [{ x: S0, y: zu(S0) }]),
-  ].filter((p, i, arr) => i === 0 || Math.hypot(p.x - arr[i - 1].x, p.y - arr[i - 1].y) > 1e-6);
+  const outline = rafterOutline(r, D, h);
 
   // --- Section ---
   prims.push({ t: 'line', pts: [{ x: -0.4, y: 0 }, { x: D + 0.4, y: 0 }], cls: 'ground' });

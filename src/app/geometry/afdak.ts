@@ -400,3 +400,33 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
     warnings,
   };
 }
+
+/**
+ * Outline of a rafter in the side section (x = s, y = height): top edge, front plumb cut, the
+ * underside with its notches (heel, seat and, housed, the uphill cut), and the back end. Used for
+ * the section, the rafter laid flat to saw from, and the 3D construction.
+ */
+export function rafterOutline(r: Rafter, depth: number, h: number): { x: number; y: number }[] {
+  const a = (r.pitch * Math.PI) / 180;
+  const [back, front] = r.seats;
+  const zu = r.undersideAt;
+  const top = (s: number) => zu(s) + h / Math.cos(a);
+  const S0 = r.start;
+  const D = depth;
+  /** A notch along the underside, walking from the front to the back: heel, seat, and (housed) the uphill cut. */
+  const notch = (st: Seat) => [
+    { x: st.s1, y: zu(st.s1) },
+    { x: st.s1, y: st.z },
+    { x: st.s1 - st.length, y: st.z },
+    ...(st.housed ? [{ x: st.s0, y: zu(st.s0) }] : []),
+  ];
+  return [
+    { x: S0, y: top(S0) },
+    { x: D, y: top(D) },
+    { x: D, y: zu(D) },
+    ...notch(front),
+    // Against the beam: no notch; with a nose to the wall the seat on the beam reaches the end.
+    ...(back.through ? [{ x: back.s1, y: zu(back.s1) }, { x: back.s1, y: back.z }, { x: S0, y: back.z }] : back.against ? [] : notch(back)),
+    ...(back.through ? [] : [{ x: S0, y: zu(S0) }]),
+  ].filter((p, i, arr) => i === 0 || Math.hypot(p.x - arr[i - 1].x, p.y - arr[i - 1].y) > 1e-6);
+}

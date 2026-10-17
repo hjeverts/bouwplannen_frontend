@@ -1,5 +1,11 @@
-import { Component, computed, inject, input, output } from '@angular/core';
-import { roofSheet } from '../drawing/roof-sheet';
+import { Component, computed, DestroyRef, ElementRef, inject, input, output, signal } from '@angular/core';
+import { FrameViewer } from '../drawing/frame-viewer';
+import { framePieces, frameView } from '../drawing/frame-views';
+import { singleSheet } from '../drawing/sheet';
+import { buildFrame } from '../geometry/frame3d';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { roofSectionView, roofSheet } from '../drawing/roof-sheet';
+import { heightFor, renderFitted } from '../drawing/vector';
 import { afdakPlanSheet, afdakRafterSheet } from '../drawing/afdak-views';
 import { AfdakPanel } from './afdak-editor';
 import { afdakLayers } from '../model/compute';
@@ -37,7 +43,8 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
 
 @Component({
   selector: 'app-dak-editor',
-  imports: [MeasureField, Results, Drawing, AfdakPanel],
+  styles: [':host { display: block; }'],
+  imports: [MeasureField, Results, Drawing, AfdakPanel, FrameViewer],
   template: `
     <div class="toolbar">
       <div class="segmented" role="radiogroup" aria-label="Daktype">
@@ -171,13 +178,25 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
     @if (outcome().status === 'ok') {
       <div class="opening-actions">
         <button type="button" class="btn" (click)="printSheet()">Spant printen (A4)</button>
+        @if (sheetCount() > 1) {
+          <button type="button" class="btn" (click)="printAll()">Alles printen ({{ sheetCount() }} pagina's)</button>
+        }
         @if (afdakMode()) {
-          <button type="button" class="btn" (click)="printAll()">Alles printen ({{ allSheets().length }} pagina's)</button>
-          <span class="hint">Uitzettekening, zaagtekening van de spoor en het spant met dakopbouw, latverdeling en materiaal.</span>
+          <span class="hint">Uitzettekening, zaagtekening van de spoor, het spant met dakopbouw, latverdeling en materiaal, en de constructie in 3D.</span>
         } @else {
-          <span class="hint">Doorsnede op schaal met alle maten, hoogtes, zaagsneden, latverdeling en materiaal.</span>
+          <span class="hint">Doorsnede op schaal met alle maten, hoogtes, zaagsneden, latverdeling en materiaal{{ sheetCount() > 1 ? '; alles printen voegt de 3D-constructie toe' : '' }}.</span>
         }
       </div>
+    }
+
+    @if (outcome().status === 'ok') {
+      <details class="more" [open]="show3d()" (toggle)="show3d.set($any($event.target).open)">
+        <summary>Constructie in 3D</summary>
+        <p class="hint">Alle balken los te bekijken: sleep om te draaien. Pannen, dakbeschot en wanden zijn doorzichtig of uit, zodat ze de constructie niet verbergen.</p>
+        @if (show3d() && okValue(); as d) {
+          <app-frame-viewer [dak]="d" [project]="projectName()" [name]="item().name || 'Kap'" />
+        }
+      </details>
     }
 
     <details class="more" [open]="hasBuildup()">
@@ -197,6 +216,8 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
       <div class="fields fields--4 buildup-fields">
         @if (!afdakMode()) {
           <app-measure-field label="Hoogte spoor / gording" [value]="b('rafter')" (valueChange)="setBuildup('rafter', $event)" hint="Balkhoogte haaks op het dak" />
+          <app-measure-field label="Breedte spoor" [value]="b('rafterWidth')" (valueChange)="setBuildup('rafterWidth', $event)" placeholder="0,050" hint="Voor de 3D-constructie" />
+          <app-measure-field label="Sporen h.o.h." [value]="b('rafterSpacing')" (valueChange)="setBuildup('rafterSpacing', $event)" placeholder="0,600" hint="Grootste afstand; de buitenste gelijk met de gevels" />
         }
         <app-measure-field label="Dakbeschot" [value]="b('deck')" (valueChange)="setBuildup('deck', $event)" hint="Of dakplaat / isolerend dakelement" />
         <app-measure-field label="Tengel" [value]="b('counter')" (valueChange)="setBuildup('counter', $event)" hint="Dikte" />
@@ -278,6 +299,14 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
         }
       }
     </details>
+
+    @if (sectionSvg(); as svg) {
+      <details class="more" open>
+        <summary>Doorsnede spant met dakopbouw</summary>
+        <p class="hint">Dezelfde tekening als op de print: spoorlengtes, hoogtes, dakopbouw en de latverdeling.</p>
+        <div class="hv-svg section-svg" [innerHTML]="svg"></div>
+      </details>
+    }
   `,
 })
 export class DakEditor {
@@ -286,6 +315,20 @@ export class DakEditor {
 
   private readonly printer = inject(PrintService);
   private readonly store = inject(ProjectStore);
+  private readonly sanitizer = inject(DomSanitizer);
+  private readonly width = signal(760);
+
+  constructor() {
+    const el = inject(ElementRef).nativeElement as HTMLElement;
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver((entries) => {
+        const w = Math.round(entries[0]?.contentRect.width ?? 0);
+        if (w > 0 && Math.abs(w - this.width()) > 4) this.width.set(w);
+      });
+      ro.observe(el);
+      inject(DestroyRef).onDestroy(() => ro.disconnect());
+    }
+  }
 
   /** The work drawing of the truss on A4, for building from. */
   sheet(): string | null {
@@ -295,7 +338,15 @@ export class DakEditor {
   }
 
   /** Every sheet of this roof: for an afdak the set-out and rafter drawings, then the roof itself. */
-  protected readonly allSheets = computed(() => {
+  /** How many pages "Alles printen" gives (the sheets themselves are only made when printing). */
+  protected readonly sheetCount = computed(() => {
+    const o = this.outcome();
+    if (o.status !== 'ok') return 0;
+    const a = o.value.afdak;
+    return 1 + (a ? 1 + (a.rafters ? 1 : 0) : 0) + (buildFrame(o.value).members.length ? 1 : 0);
+  });
+
+  allSheets(): string[] {
     const o = this.outcome();
     if (o.status !== 'ok') return [];
     const meta = (subject: string) => ({ project: this.store.currentProject()?.name ?? '', subject: `${this.item().name || 'Kap'} · ${subject}` });
@@ -307,8 +358,13 @@ export class DakEditor {
     }
     const roof = this.sheet();
     if (roof) sheets.push(roof);
+    const frame = buildFrame(o.value);
+    if (frame.members.length) {
+      const view = frameView(frame, framePieces(frame), { azimuth: -35, elevation: 28 }, { cover: 'doorzichtig', walls: 'doorzichtig', battens: true, title: 'Constructie in 3D' });
+      sheets.push(singleSheet(view, meta('3D-constructie')));
+    }
     return sheets;
-  });
+  }
 
   protected printAll(): void {
     const sheets = this.allSheets();
@@ -319,6 +375,23 @@ export class DakEditor {
     const svg = this.sheet();
     if (svg) this.printer.print(svg);
   }
+
+  protected readonly show3d = signal(false);
+
+  /** The truss section of the print, on screen. */
+  protected readonly sectionSvg = computed<SafeHtml | null>(() => {
+    const d = this.okValue();
+    if (!d) return null;
+    const view = roofSectionView(d);
+    const w = Math.min(this.width(), 1000);
+    const k = w < 520 ? 3.4 : 3.8;
+    return this.sanitizer.bypassSecurityTrustHtml(renderFitted(view, w, Math.max(240, heightFor(view, w, k, 3, 680)), k));
+  });
+  protected readonly okValue = computed(() => {
+    const o = this.outcome();
+    return o.status === 'ok' ? o.value : null;
+  });
+  protected readonly projectName = computed(() => this.store.currentProject()?.name ?? '');
 
   protected readonly type = computed(() => this.item().roofType);
   protected readonly outcome = computed(() => computeDak(this.item()));

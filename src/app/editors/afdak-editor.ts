@@ -2,7 +2,7 @@ import { Component, computed, inject, input, output } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { afdakPlanSheet, afdakPlanView, afdakRafterSheet, afdakRafterView } from '../drawing/afdak-views';
 import { heightFor, renderFitted, View } from '../drawing/vector';
-import { formatAngle, formatLength, formatMm, lengthInput } from '../geometry/units';
+import { formatAngle, formatLength, formatMm, lengthInput, parseLength } from '../geometry/units';
 import { computeAfdakEntry } from '../model/compute-afdak';
 import { AfdakEntry, AfdakRoofEntry, AfdakSide, emptyAfdakRoof } from '../model/models';
 import { ProjectStore } from '../model/project-store';
@@ -22,9 +22,23 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
     </p>
 
     <h3 class="group-title">Afmeting</h3>
+    <div class="segmented segmented--small" role="radiogroup" aria-label="Breedte en diepte zijn">
+      <button type="button" role="radio" [attr.aria-checked]="byFrame()" (click)="setSizeOf('constructie')">Maat constructie + overstek</button>
+      <button type="button" role="radio" [attr.aria-checked]="!byFrame()" (click)="setSizeOf('totaal')">Totale maat dak</button>
+    </div>
     <div class="fields fields--3">
-      <app-measure-field label="Breedte" [value]="item().width" (valueChange)="set('width', $event)" hint="Langs het gebouw, rand tot rand dak" />
-      <app-measure-field label="Diepte" [value]="item().depth" (valueChange)="set('depth', $event)" hint="Van het gebouw tot de voorrand van het dak" />
+      <app-measure-field
+        [label]="byFrame() ? 'Breedte constructie' : 'Breedte'"
+        [value]="item().width"
+        (valueChange)="set('width', $event)"
+        [hint]="byFrame() ? 'Buitenkant tot buitenkant staanders' + totalHint('width') : 'Langs het gebouw, rand tot rand dak'"
+      />
+      <app-measure-field
+        [label]="byFrame() ? 'Diepte constructie' : 'Diepte'"
+        [value]="item().depth"
+        (valueChange)="set('depth', $event)"
+        [hint]="byFrame() ? (item().attached ? 'Gebouw tot buitenkant staanders voor' : 'Buitenkant tot buitenkant staanders') + totalHint('depth') : 'Van het gebouw tot de voorrand van het dak'"
+      />
       @if (item().attached) {
         <app-measure-field label="Vanaf hoek gebouw" [value]="item().wallOffset" (valueChange)="set('wallOffset', $event)" hint="Hoek gebouw tot linkerrand dak; leeg = niet nodig" />
       }
@@ -234,6 +248,34 @@ export class AfdakPanel {
     if (!r) return '';
     if (which === 'pitch') return `≈ ${formatAngle(r.pitch, 1)}`;
     return lengthInput(which === 'front' ? r.frontHeight : r.backHeight, 'm');
+  }
+
+  /** Width and depth measure the construction; the overhangs come on top. */
+  protected readonly byFrame = computed(() => this.item().sizeOf === 'constructie');
+
+  /** The whole roof, edge to edge, that comes out (with the overhangs). */
+  protected totalHint(which: 'width' | 'depth'): string {
+    const o = this.outcome();
+    if (o.status !== 'ok') return '';
+    return `; dak totaal ${formatLength(which === 'width' ? o.value.plan.width : o.value.plan.depth)}`;
+  }
+
+  /** Switch what the sizes measure, keeping the roof the same: the overhangs move in or out of the numbers. */
+  protected setSizeOf(sizeOf: 'constructie' | 'totaal'): void {
+    const it = this.item();
+    if ((it.sizeOf === 'constructie') === (sizeOf === 'constructie')) return;
+    const m = (t: string) => {
+      const v = parseLength(t);
+      return v !== null && Number.isFinite(v) ? v : 0;
+    };
+    const sign = sizeOf === 'constructie' ? -1 : 1;
+    const conv = (t: string, extra: number) => {
+      const v = parseLength(t);
+      return v === null || !Number.isFinite(v) ? t : lengthInput(Math.max(0, v + sign * extra));
+    };
+    const width = conv(it.width, 2 * m(it.overhangSide));
+    const depth = conv(it.depth, m(it.overhangFront) + (it.attached ? 0 : m(it.overhangBack)));
+    this.changed.emit({ ...it, sizeOf, width, depth });
   }
 
   protected set(field: Field, value: string): void {

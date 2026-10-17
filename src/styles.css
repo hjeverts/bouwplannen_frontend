@@ -1842,3 +1842,10 @@ app-house-viewer {
     white-space: normal;
   }
 }
+
+/* 3D construction */
+.seg-label { align-self: center; padding: 0 .5rem 0 .25rem; font-size: .8rem; color: var(--muted, #5b625e); }
+.f3d-legend { display: flex; flex-wrap: wrap; gap: .35rem .9rem; list-style: none; margin: .5rem 0; padding: 0; font-size: .85rem; }
+.f3d-legend li { display: inline-flex; align-items: center; gap: .35rem; }
+.f3d-swatch { width: .9rem; height: .9rem; border-radius: 2px; border: 1px solid rgba(0,0,0,.35); }
+.section-svg { max-width: 1000px; }

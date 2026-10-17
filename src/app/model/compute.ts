@@ -189,6 +189,11 @@ export interface DakResult {
   buildupMessage: string | null;
   /** A lean-to as an afdak on posts: its posts, beams and rafters (which gave the section). */
   afdak: AfdakOutcome | null;
+  /** Overhang at the first gable end (where the roof length starts). */
+  gableOverhang?: number;
+  /** Rafters for the 3D construction (not an afdak: from the build-up; null when not entered). */
+  rafterWidth?: number | null;
+  rafterSpacing?: number | null;
 }
 
 /**
@@ -205,7 +210,7 @@ export function afdakLayers(d: DakResult): { name: string; pts: { x: number; y: 
     .map((l) => ({ name: l.name, pts: l.pts.map((p) => ({ x: sFront - p.x, y: p.y })) }));
 }
 
-type Section = Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage' | 'afdak'>;
+type Section = Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage' | 'afdak' | 'rafterWidth' | 'rafterSpacing'>;
 
 /**
  * The section of an afdak as a lean-to roof, on the underside of its rafters: from the front seat
@@ -264,7 +269,18 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
     if (!(e instanceof GeometryError || e instanceof InputError)) throw e;
     tilesMessage = e.message;
   }
-  return { status: 'ok', value: { ...r.value, tiles, tilesMessage, buildup, buildupMessage, afdak } };
+  // The rafters along the roof, for the 3D construction (an afdak has its own).
+  let rafterWidth: number | null = null;
+  let rafterSpacing: number | null = null;
+  if (!afdak && item.buildup) {
+    const size = (text: string | undefined) => {
+      const v = parseLength(text ?? '');
+      return v !== null && Number.isFinite(v) && v > 0 ? v : null;
+    };
+    rafterWidth = size(item.buildup.rafterWidth);
+    rafterSpacing = size(item.buildup.rafterSpacing);
+  }
+  return { status: 'ok', value: { ...r.value, tiles, tilesMessage, buildup, buildupMessage, afdak, rafterWidth, rafterSpacing } };
 }
 
 /** Heights of the layers; null when no thickness is entered. */
@@ -355,7 +371,7 @@ function computeSection(item: DakItem): Outcome<Section> {
       if ([rise, pitch, rafter].every((v) => v === null)) return incomplete('Vul voor het bovendak de hoogte, helling of lengte in.');
       const roof = mansardSection({ span, lower, upper: { rise, pitch, length: rafter }, overhang, overhangRight });
       const perSide = (s: { rafterWithOverhang: number }) => (purlinLength === null ? null : (s.rafterWithOverhang + roof.upper!.rafter) * purlinLength);
-      return { status: 'ok', value: { roof, purlinLength, length, surfaceLeft: perSide(roof.left), surfaceRight: perSide(roof.right!) } };
+      return { status: 'ok', value: { roof, purlinLength, length, gableOverhang, surfaceLeft: perSide(roof.left), surfaceRight: perSide(roof.right!) } };
     }
 
     const isGable = item.roofType === 'zadeldak';
@@ -384,6 +400,7 @@ function computeSection(item: DakItem): Outcome<Section> {
         roof,
         purlinLength,
         length,
+        gableOverhang,
         surfaceLeft: purlinLength === null ? null : roof.left.rafterWithOverhang * purlinLength,
         surfaceRight: purlinLength === null || !roof.right ? null : roof.right.rafterWithOverhang * purlinLength,
       },

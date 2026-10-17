@@ -93,6 +93,19 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
           hint="Voor–achter: waar de spoor op ligt"
         />
       </div>
+      @if (item().attached) {
+        <div class="segmented segmented--small" role="radiogroup" aria-label="Sporen aan de muurkant">
+          <button type="button" role="radio" [attr.aria-checked]="(item().roof?.backFix ?? 'op') === 'op'" (click)="setRoof('backFix', 'op')">Spoor op de ligger (keep)</button>
+          <button type="button" role="radio" [attr.aria-checked]="item().roof?.backFix === 'tegen'" (click)="setRoof('backFix', 'tegen')">Spoor tegen de ligger, geschroefd</button>
+        </div>
+        @if (item().roof?.backFix === 'tegen') {
+          <p class="hint">De spoor eindigt met een loodsnede tegen de voorkant van de ligger en wordt daaraan vastgezet (schuin schroeven of een balkdrager). Geen keep aan de muurkant.</p>
+          <div class="fields fields--3">
+            <app-measure-field label="Bovenkant spoor t.o.v. ligger" [value]="rf('backOffset')" (valueChange)="setRoof('backOffset', $event)" placeholder="0" hint="0 = gelijk met de bovenkant; negatief = lager" />
+            <app-measure-field label="Ligger tegen gebouw hoog" [value]="rf('backBeamHeight')" (valueChange)="setRoof('backBeamHeight', $event)" hint="Om te controleren dat de spoor op de ligger blijft" />
+          </div>
+        }
+      }
       <div class="fields fields--4">
         <app-measure-field label="Spoor breed" [value]="rf('rafterWidth')" (valueChange)="setRoof('rafterWidth', $event)" />
         <app-measure-field label="Spoor hoog" [value]="rf('rafterHeight')" (valueChange)="setRoof('rafterHeight', $event)" />
@@ -187,7 +200,10 @@ export class AfdakEditor {
         { label: 'Staanders voor, lengte', value: formatLength(r.frontPost) },
       );
       if (r.backPost !== null) rows.push({ label: 'Staanders achter, lengte', value: formatLength(r.backPost) });
-      for (const st of r.seats) rows.push({ label: `Keep ${st.name.toLowerCase()}`, value: `zit ${formatMm(st.length)} · ${formatMm(st.depth)} diep · ${formatMm(st.left)} over` });
+      for (const st of r.seats) {
+        if (st.against) rows.push({ label: `Spoor tegen ${st.name.toLowerCase()}`, value: `loodsnede ${formatMm(st.plumb)} hoog` });
+        else rows.push({ label: `Keep ${st.name.toLowerCase()}`, value: `zit ${formatMm(st.length)} · ${formatMm(st.depth)} diep · ${formatMm(st.left)} over` });
+      }
     }
     return rows;
   });

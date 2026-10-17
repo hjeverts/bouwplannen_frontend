@@ -98,6 +98,8 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
           rafterWidth: c(item.roof.rafterWidth)!,
           rafterHeight: c(item.roof.rafterHeight)!,
           rafterSpacing: c(item.roof.rafterSpacing)!,
+          backOffset: c(item.roof.backOffset),
+          backBeamHeight: c(item.roof.backBeamHeight),
         },
       };
     case 'maten':

@@ -110,6 +110,59 @@ describe('afdak rafters and their notches', () => {
   });
 });
 
+describe('afdak rafters fixed against the wall beam', () => {
+  const plan = computeAfdak(base);
+  const C18 = Math.cos((18 * Math.PI) / 180);
+
+  it('ends the rafter against the beam face, top flush, without a notch at the back', () => {
+    const r = computeRafters(plan, { ...roof, backFix: 'tegen' });
+    const [back, front] = r.seats;
+    expect(back.against).toBe(true);
+    expect(back.length).toBe(0);
+    expect(back.plumb).toBeCloseTo(0.15 / C18, 9);
+    expect(front.length).toBeCloseTo(0.15, 9);
+    // Starts at the face of the 150 mm beam; flush top: the beam top equals the rafter top there.
+    expect(r.start).toBeCloseTo(0.15, 9);
+    expect(r.length).toBeCloseTo(1.35 / C18, 9);
+    expect(r.ends.back.top).toBeCloseTo(r.backHeight, 9);
+    expect(r.backHeight).toBeCloseTo(2.2 + T18 * (1.35 - 0.15) + 0.15 / C18, 9);
+  });
+
+  it('takes an offset, works out the pitch from the heights, and checks the beam height', () => {
+    const lower = computeRafters(plan, { ...roof, backFix: 'tegen', backOffset: -0.02 });
+    expect(lower.ends.back.top).toBeCloseTo(lower.backHeight - 0.02, 9);
+    const fromHeights = computeRafters(plan, { ...roof, backFix: 'tegen', pitch: null, backHeight: lower.backHeight, backOffset: -0.02 });
+    expect(fromHeights.pitch).toBeCloseTo(18, 6);
+    // A 150 mm rafter at 18° has a 158 mm end cut: 8 mm below a flush 150 mm beam.
+    const check = computeRafters(plan, { ...roof, backFix: 'tegen', backBeamHeight: 0.15 });
+    expect(check.warnings.some((w) => /onder de ligger uit/.test(w))).toBe(true);
+    expect(computeRafters(plan, { ...roof, backFix: 'tegen', backBeamHeight: 0.2 }).warnings).toEqual([]);
+  });
+
+  it('draws and prints the rafter against the beam', () => {
+    const item: AfdakItem = {
+      ...(createItem('afdak') as AfdakItem),
+      width: '5',
+      depth: '1,5',
+      roof: { ...emptyAfdakRoof(), pitch: '18', frontHeight: '2,2', beamHeight: '0,15', backWidth: '0,15', rafterWidth: '0,05', rafterHeight: '0,15', backFix: 'tegen', backOffset: '-0,01' },
+    };
+    const r = computeAfdakItem(item);
+    if (r.status !== 'ok') throw new Error(r.message);
+    expect(r.value.roofMessage).toBeNull();
+    expect(r.value.backOffset).toBeCloseTo(-0.01, 9);
+    const texts = afdakRafterView(r.value)!.prims.flatMap((p) => (p.t === 'dim' || p.t === 'text' ? [p.text] : []));
+    expect(texts.some((t) => /tegen de ligger/.test(t))).toBe(true);
+    expect(texts).toContain(String(Math.round((1.35 / C18) * 1000)));
+    const sheet = afdakRafterSheet(r.value, { project: 'P', subject: 'A' })!;
+    expect(sheet).toContain('achter: tegen');
+    expect(sheet).not.toContain('NaN');
+    // Free-standing: always on top of the back beam.
+    const free = computeAfdakItem({ ...item, attached: false, roof: { ...item.roof!, backWidth: '' } });
+    if (free.status !== 'ok') throw new Error(free.message);
+    expect(free.value.rafters!.seats[0].against).toBeFalsy();
+  });
+});
+
 describe('afdak item and drawings', () => {
   const item: AfdakItem = {
     ...(createItem('afdak') as AfdakItem),

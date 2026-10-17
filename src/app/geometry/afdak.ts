@@ -181,6 +181,15 @@ export interface AfdakRoofInput {
   rafterSpacing: number;
   /** Deepest notch as a part of the rafter height, square to the rafter: 1/3 or 1/4. */
   notchFraction: number;
+  /**
+   * Against a building: 'op' = the rafters rest on top of the beam (seat notch), 'tegen' = they
+   * end against its front face with a plumb cut and are screwed to it (or hung in joist hangers).
+   */
+  backFix?: 'op' | 'tegen';
+  /** 'tegen': top of the rafter above the top of the beam, at its face (0 = flush; negative = lower). */
+  backOffset?: number;
+  /** 'tegen': height of that beam, to check the rafter's end does not hang below it. */
+  backBeamHeight?: number | null;
 }
 
 export interface Seat {
@@ -197,14 +206,18 @@ export interface Seat {
   left: number;
   /** The seat is shorter than the support is wide (the notch would get too deep). */
   limited: boolean;
+  /** The rafter ends against this support (no notch); `plumb` is then the height of its end cut. */
+  against?: boolean;
 }
 
 export interface Rafter {
   pitch: number;
   /** Underside of the rafter: height at s. */
   undersideAt: (s: number) => number;
-  /** Ends: plumb cuts at s = 0 (back) and s = depth (front). Length along the rafter, both edges. */
+  /** Ends: plumb cuts at s = start (back) and s = depth (front). Length along the rafter, both edges. */
   length: number;
+  /** Where the rafter starts at the back: 0 (wall or back edge), or the face of the beam it is fixed against. */
+  start: number;
   seats: Seat[];
   /** Positions along the width (centres) and the spacing that comes out. */
   xs: number[];
@@ -247,9 +260,13 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
   const b1 = plan.backRow === null ? roof.backWidth : plan.backRow + roof.backWidth / 2;
   if (!(roof.backWidth > 0)) throw new RangeError(plan.attached ? 'Vul de breedte van de ligger tegen het gebouw in.' : 'Vul de breedte van de achterligger in.');
 
+  const against = plan.attached && roof.backFix === 'tegen';
+  const offset = roof.backOffset ?? 0;
   /** Height difference between the back and the front support tops for pitch a. */
   const rise = (a: number) => {
     const sf = f1 - seatOn('', f0, f1, 0, h, a, roof.notchFraction).length;
+    // Against the beam: the rafter's top at the beam face is `offset` above the beam top.
+    if (against) return Math.tan(a) * (sf - b1) + h / Math.cos(a) - offset;
     const sb = b1 - seatOn('', b0, b1, 0, h, a, roof.notchFraction).length;
     return Math.tan(a) * (sf - sb);
   };
@@ -273,11 +290,12 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
     if (roof.frontHeight === null || roof.backHeight === null) throw new RangeError('Vul de dakhelling in, of beide hoogtes.');
     zf = roof.frontHeight;
     zb = roof.backHeight;
-    if (zb <= zf) throw new RangeError('De achterkant moet hoger liggen dan de voorligger.');
+    if (zb <= zf && !against) throw new RangeError('De achterkant moet hoger liggen dan de voorligger.');
     // rise(a) grows with a: bisection.
     let lo = 0.1 * DEG;
     let hi = 79 * DEG;
     if (rise(hi) < zb - zf) throw new RangeError('Het hoogteverschil is te groot voor deze diepte.');
+    if (rise(lo) > zb - zf) throw new RangeError('Het hoogteverschil is te klein: de spoor tegen de ligger komt dan al hoger dan de achterkant.');
     for (let i = 0; i < 80; i++) {
       const mid = (lo + hi) / 2;
       if (rise(mid) < zb - zf) lo = mid;
@@ -286,14 +304,22 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
     a = (lo + hi) / 2;
   }
   const front = seatOn('Voorligger', f0, f1, zf, h, a, roof.notchFraction);
-  const back = seatOn(plan.attached ? 'Ligger tegen gebouw' : 'Achterligger', b0, b1, zb, h, a, roof.notchFraction);
+  const back: Seat = against
+    ? { name: 'Ligger tegen gebouw', s0: b0, s1: b1, z: zb, length: 0, plumb: h / Math.cos(a), depth: 0, left: h, limited: false, against: true }
+    : seatOn(plan.attached ? 'Ligger tegen gebouw' : 'Achterligger', b0, b1, zb, h, a, roof.notchFraction);
   // The underside passes through the start of the front seat.
   const sStart = f1 - front.length;
   const undersideAt = (s: number) => zf - Math.tan(a) * (s - sStart);
-  const length = plan.depth / Math.cos(a);
+  const start = against ? b1 : 0;
+  const length = (plan.depth - start) / Math.cos(a);
   const top = (s: number) => undersideAt(s) + h / Math.cos(a);
+  if (against && roof.backBeamHeight && roof.backBeamHeight > 0) {
+    // The end of the rafter against the beam should stay on the beam (for screws or a hanger).
+    const below = zb - roof.backBeamHeight - undersideAt(b1);
+    if (below > 0.001) warnings.push(`Ligger tegen gebouw: de onderkant van de spoor komt ${Math.round(below * 1000)} mm onder de ligger uit (loodsnede ${Math.round((h / Math.cos(a)) * 1000)} mm, ligger ${Math.round(roof.backBeamHeight * 1000)} mm). Zet de spoor hoger of gebruik een hogere ligger.`);
+  }
 
-  for (const st of [front, back]) {
+  for (const st of [front, ...(against ? [] : [back])]) {
     if (st.length < Math.min(0.05, st.s1 - st.s0) - 1e-9) warnings.push(`${st.name}: de spoor ligt maar ${Math.round(st.length * 1000)} mm op; dat is weinig. Een hogere spoor of minder helling geeft meer oplegging.`);
     else if (st.limited) warnings.push(`${st.name}: de keep is beperkt tot ${Math.round(st.depth * 1000)} mm diep (${roof.notchFraction === 0.25 ? '1/4' : '1/3'} van de spoor), de zit is daardoor ${Math.round(st.length * 1000)} mm in plaats van de volle ${Math.round((st.s1 - st.s0) * 1000)} mm.`);
   }
@@ -307,6 +333,7 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
     pitch: a / DEG,
     undersideAt,
     length,
+    start,
     seats: [back, front],
     xs,
     spacing,
@@ -314,7 +341,7 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
     backHeight: zb,
     frontPost: zf - roof.beamHeight,
     backPost: plan.attached ? null : zb - roof.beamHeight,
-    ends: { back: { under: undersideAt(0), top: top(0) }, front: { under: undersideAt(plan.depth), top: top(plan.depth) } },
+    ends: { back: { under: undersideAt(start), top: top(start) }, front: { under: undersideAt(plan.depth), top: top(plan.depth) } },
     warnings,
   };
 }

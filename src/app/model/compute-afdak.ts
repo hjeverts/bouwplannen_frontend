@@ -13,6 +13,9 @@ export interface AfdakOutcome {
   rafterHeight: number | null;
   beamHeight: number | null;
   notch: '3' | '4';
+  /** Rafters fixed against the wall beam: its height (if given) and the rafter top above it. */
+  backBeamHeight: number | null;
+  backOffset: number;
 }
 
 class Missing extends Error {}
@@ -66,7 +69,7 @@ export function computeAfdakItem(item: AfdakItem): Outcome<AfdakOutcome> {
   let rafters: Rafter | null = null;
   let roofMessage: string | null = null;
   const r = item.roof;
-  const sizes = { rafterWidth: null as number | null, rafterHeight: null as number | null, beamHeight: null as number | null };
+  const sizes = { rafterWidth: null as number | null, rafterHeight: null as number | null, beamHeight: null as number | null, backBeamHeight: null as number | null, backOffset: 0 };
   if (r && Object.entries(r).some(([k, v]) => k !== 'notch' && String(v ?? '').trim())) {
     try {
       const pitch = parseAngle(r.pitch);
@@ -76,6 +79,13 @@ export function computeAfdakItem(item: AfdakItem): Outcome<AfdakOutcome> {
       sizes.rafterWidth = len(r.rafterWidth, 'Breedte spoor');
       sizes.rafterHeight = len(r.rafterHeight, 'Hoogte spoor');
       sizes.beamHeight = len(r.beamHeight, 'Hoogte voorligger (balk)');
+      const against = item.attached && r.backFix === 'tegen';
+      // The offset may be negative (rafter lower than the beam): read it without the sign check.
+      const offText = (r.backOffset ?? '').trim();
+      const off = offText ? parseLength(offText.replace(/^-/, '')) : 0;
+      if (off !== null && Number.isNaN(off)) throw new Missing(`Bovenkant spoor t.o.v. ligger: "${offText}" is geen maat.`);
+      sizes.backOffset = against ? (offText.startsWith('-') ? -(off ?? 0) : (off ?? 0)) : 0;
+      sizes.backBeamHeight = against ? len(r.backBeamHeight, 'Hoogte ligger tegen gebouw') : null;
       rafters = computeRafters(plan, {
         pitch,
         frontHeight: len(r.frontHeight, 'Hoogte voorligger'),
@@ -87,6 +97,9 @@ export function computeAfdakItem(item: AfdakItem): Outcome<AfdakOutcome> {
         rafterHeight: need(len(r.rafterHeight, 'Hoogte spoor'), 'de hoogte van de sporen'),
         rafterSpacing: len(r.rafterSpacing, 'Sporen h.o.h.', 0.6)!,
         notchFraction: r.notch === '4' ? 0.25 : 1 / 3,
+        backFix: item.attached && r.backFix === 'tegen' ? 'tegen' : 'op',
+        backOffset: sizes.backOffset,
+        backBeamHeight: sizes.backBeamHeight,
       });
     } catch (e) {
       if (!(e instanceof Missing || e instanceof RangeError)) throw e;

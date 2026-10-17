@@ -121,19 +121,25 @@ export function afdakRafterParts(o: AfdakOutcome): { section: View; detail: View
   const [back, front] = r.seats;
   const zu = r.undersideAt;
   const top = (s: number) => zu(s) + h / Math.cos(a);
+  // Back end: the wall or back edge, or the face of the beam the rafter is fixed against.
+  const S0 = r.start;
 
-  // The rafter's outline in the section: top edge, front plumb cut, underside with both notches.
+  // The rafter's outline in the section: top edge, front plumb cut, underside with its notches.
   const outline: Point[] = [
-    { x: 0, y: top(0) },
+    { x: S0, y: top(S0) },
     { x: D, y: top(D) },
     { x: D, y: zu(D) },
     { x: front.s1, y: zu(front.s1) },
     { x: front.s1, y: front.z },
     { x: front.s1 - front.length, y: front.z },
-    { x: back.s1, y: zu(back.s1) },
-    { x: back.s1, y: back.z },
-    { x: back.s1 - back.length, y: back.z },
-    { x: 0, y: zu(0) },
+    ...(back.against
+      ? []
+      : [
+          { x: back.s1, y: zu(back.s1) },
+          { x: back.s1, y: back.z },
+          { x: back.s1 - back.length, y: back.z },
+        ]),
+    { x: S0, y: zu(S0) },
   ].filter((p, i, arr) => i === 0 || Math.hypot(p.x - arr[i - 1].x, p.y - arr[i - 1].y) > 1e-6);
 
   // --- Section ---
@@ -145,7 +151,8 @@ export function afdakRafterParts(o: AfdakOutcome): { section: View; detail: View
   post(plan.frontRow, r.frontPost);
   if (plan.backRow !== null && r.backPost !== null) post(plan.backRow, r.backPost);
   prims.push({ t: 'poly', rings: [rect(front.s0, front.z - bh, front.s1, front.z)], cls: 'f', fill: 'rgb(200,178,138)' });
-  prims.push({ t: 'poly', rings: [rect(back.s0, back.z - (plan.attached ? Math.min(bh, 0.15) : bh), back.s1, back.z)], cls: 'f', fill: 'rgb(200,178,138)' });
+  const backBeam = plan.attached ? (o.backBeamHeight ?? Math.min(bh, 0.15)) : bh;
+  prims.push({ t: 'poly', rings: [rect(back.s0, back.z - backBeam, back.s1, back.z)], cls: 'f', fill: 'rgb(200,178,138)' });
   prims.push({ t: 'poly', rings: [outline], cls: 'f', fill: WOOD });
   // Heights: front beam, back support, and the posts.
   const xl = -0.4;
@@ -162,8 +169,8 @@ export function afdakRafterParts(o: AfdakOutcome): { section: View; detail: View
   prims.length = 0;
 
   // --- Rafter laid flat: u along the rafter from the back end (underside), v up. ---
-  const z0 = zu(0);
-  const toUV = (p: Point): Point => ({ x: p.x * Math.cos(a) - (p.y - z0) * Math.sin(a), y: p.x * Math.sin(a) + (p.y - z0) * Math.cos(a) });
+  const z0 = zu(S0);
+  const toUV = (p: Point): Point => ({ x: (p.x - S0) * Math.cos(a) - (p.y - z0) * Math.sin(a), y: (p.x - S0) * Math.sin(a) + (p.y - z0) * Math.cos(a) });
   const base = 0;
   const flat = (p: Point): Point => {
     const q = toUV(p);
@@ -172,13 +179,13 @@ export function afdakRafterParts(o: AfdakOutcome): { section: View; detail: View
   prims.push({ t: 'poly', rings: [outline.map(flat)], cls: 'f', fill: WOOD });
   prims.push({ t: 'text', at: flat({ x: D / 2, y: top(D / 2) }), text: `spoor ${mm(o.rafterWidth!)} × ${mm(h)}, ${r.xs.length} stuks`, cls: 'label', size: 2.6, dy: 12 });
   // Length on both edges (plumb cuts: the top corner lies h·tan a back from the bottom one).
-  const bl = flat({ x: 0, y: zu(0) });
+  const bl = flat({ x: S0, y: zu(S0) });
   const br = flat({ x: D, y: zu(D) });
-  const tl = flat({ x: 0, y: top(0) });
+  const tl = flat({ x: S0, y: top(S0) });
   const tr = flat({ x: D, y: top(D) });
   prims.push({ t: 'dim', a: tl, b: tr, off: 7, text: mm(tr.x - tl.x) });
   // Underside chain: back end, back notch, front notch, front end.
-  const marks = [0, back.s1 - back.length, back.s1, front.s1 - front.length, front.s1, D]
+  const marks = [S0, ...(back.against ? [] : [back.s1 - back.length, back.s1]), front.s1 - front.length, front.s1, D]
     .map((s) => flat({ x: s, y: zu(s) }).x)
     .filter((v, i, arr) => i === 0 || v - arr[i - 1] > 0.0005);
   for (let i = 0; i + 1 < marks.length; i++) prims.push({ t: 'dim', a: { x: marks[i], y: bl.y }, b: { x: marks[i + 1], y: bl.y }, off: -6, text: mm(marks[i + 1] - marks[i]) });
@@ -194,8 +201,9 @@ export function afdakRafterParts(o: AfdakOutcome): { section: View; detail: View
     prims.push({ t: 'dim', a: c, b: i, off: 4, text: mm(st.length), ext: false });
     prims.push({ t: 'text', at: { x: i.x, y: base }, text: `${st.name.toLowerCase()}: zit ${mm(st.length)}, keep ${mm(st.depth)} diep, ${mm(st.left)} over`, cls: 'label-sub', size: 2.1, dy: -20 - (st === back ? 0 : 3.4), anchor: 'middle' });
   }
-  // End cuts.
-  prims.push({ t: 'text', at: { x: (tl.x + bl.x) / 2, y: (tl.y + bl.y) / 2 }, text: `loodsnede ${deg(90 - r.pitch)}`, cls: 'label-sub', size: 2.1, dx: -2, anchor: 'end' });
+  // End cuts; against the beam the back cut is the face that is screwed to it.
+  const backCut = back.against ? `loodsnede ${deg(90 - r.pitch)}, ${mm(back.plumb)} hoog, tegen de ligger` : `loodsnede ${deg(90 - r.pitch)}`;
+  prims.push({ t: 'text', at: { x: (tl.x + bl.x) / 2, y: (tl.y + bl.y) / 2 }, text: backCut, cls: 'label-sub', size: 2.1, dx: -2, anchor: 'end' });
   prims.push({ t: 'text', at: { x: (tr.x + br.x) / 2, y: (tr.y + br.y) / 2 }, text: `loodsnede ${deg(90 - r.pitch)}`, cls: 'label-sub', size: 2.1, dx: 2, anchor: 'start' });
   const detail: View = { prims, title: `Zaagtekening spoor ${mm(o.rafterWidth!)} × ${mm(h)}`, scalable: true };
   return { section, detail, detailTop: Math.max(tl.y, tr.y) };
@@ -271,17 +279,18 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta): string | nul
       [34],
     );
     const [back, front] = r.seats;
+    const b = (v: string) => (back.against ? '–' : v);
     table(
       'Kepen',
       [
-        ['', 'achter', 'voor'],
-        ['Zit (horizontaal)', mm(back.length), mm(front.length)],
-        ['Loodrechte snede', mm(back.plumb), mm(front.plumb)],
-        ['Diepte haaks op spoor', mm(back.depth), mm(front.depth)],
-        ['Over boven de keep', mm(back.left), mm(front.left)],
+        ['', back.against ? 'achter: tegen' : 'achter', 'voor'],
+        ['Zit (horizontaal)', b(mm(back.length)), mm(front.length)],
+        [back.against ? 'Loodrechte snede (achter: eind)' : 'Loodrechte snede', mm(back.plumb), mm(front.plumb)],
+        ['Diepte haaks op spoor', b(mm(back.depth)), mm(front.depth)],
+        ['Over boven de keep', b(mm(back.left)), mm(front.left)],
         ['Ligger breed', mm(back.s1 - back.s0), mm(front.s1 - front.s0)],
       ],
-      [16, 16],
+      [20, 16],
     );
     const hrows: string[][] = [
       ['Bovenkant voorligger', mm(r.frontHeight)],
@@ -291,7 +300,18 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta): string | nul
     if (r.backPost !== null) hrows.push(['Staanders achter', mm(r.backPost)]);
     hrows.push(['Spoor bovenkant voor · achter', `${mm(r.ends.front.top)} · ${mm(r.ends.back.top)}`]);
     table('Hoogtes vanaf de vloer', hrows, [30]);
-    svg += panelNote(x, yy + 1, w, `Maten langs de onderkant van de spoor, vanaf het achtereind. Keep nooit dieper dan ${o.notch === '4' ? '1/4' : '1/3'} van de spoorhoogte.`).svg;
+    const fix = back.against
+      ? ` Aan de muurkant eindigt de spoor tegen de ligger, bovenkant ${o.backOffset ? `${mm(o.backOffset)} boven` : 'gelijk met'} de ligger: schuin schroeven of een balkdrager.`
+      : '';
+    const note = panelNote(x, yy + 1, w, `Maten langs de onderkant van de spoor, vanaf het achtereind. Keep nooit dieper dan ${o.notch === '4' ? '1/4' : '1/3'} van de spoorhoogte.${fix}`);
+    svg += note.svg;
+    yy += note.height + 2;
+    // What needs attention goes on the sheet too.
+    for (const warning of r.warnings) {
+      const n = panelNote(x, yy, w, `Let op: ${warning}`);
+      svg += n.svg;
+      yy += n.height + 1;
+    }
     return svg;
   });
 }

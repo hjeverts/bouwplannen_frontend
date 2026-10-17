@@ -75,6 +75,31 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
         },
         length: c(item.length)!,
       };
+    case 'afdak':
+      return {
+        ...item,
+        width: c(item.width)!,
+        depth: c(item.depth)!,
+        wallOffset: c(item.wallOffset)!,
+        postWidth: c(item.postWidth)!,
+        postDepth: c(item.postDepth)!,
+        overhangSide: c(item.overhangSide)!,
+        overhangFront: c(item.overhangFront)!,
+        overhangBack: c(item.overhangBack)!,
+        footing: c(item.footing)!,
+        wallThickness: c(item.wallThickness)!,
+        roof: item.roof && {
+          ...item.roof,
+          frontHeight: c(item.roof.frontHeight)!,
+          backHeight: c(item.roof.backHeight)!,
+          beamWidth: c(item.roof.beamWidth)!,
+          beamHeight: c(item.roof.beamHeight)!,
+          backWidth: c(item.roof.backWidth)!,
+          rafterWidth: c(item.roof.rafterWidth)!,
+          rafterHeight: c(item.roof.rafterHeight)!,
+          rafterSpacing: c(item.roof.rafterSpacing)!,
+        },
+      };
     case 'maten':
       return { ...item, entries: item.entries.map((e) => ({ ...e, value: c(e.value)! })) };
     case 'plattegrond':

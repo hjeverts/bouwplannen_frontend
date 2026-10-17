@@ -144,7 +144,8 @@ export class ProjectStore {
     const project = this.currentProject();
     if (!project) return null;
     const count = project.items.filter((i) => i.kind === kind).length;
-    const item = createItem(kind);
+    // Defaults are written in metres: in the project's own unit, so "0,300" does not become 0,3 mm.
+    const item = convertItem(createItem(kind), 'm', project.settings?.unit ?? 'm');
     if (count > 0) item.name = `${item.name} ${count + 1}`;
     this.updateProject(project.id, (p) => ({ ...p, items: [...p.items, item] }));
     this.openItem(item.id);

@@ -3,7 +3,7 @@
  * and nothing is lost to rounding. Results are always recomputed from these values.
  */
 
-export type ItemKind = 'hoek' | 'driehoek' | 'vorm' | 'dak' | 'maten' | 'plattegrond';
+export type ItemKind = 'hoek' | 'driehoek' | 'vorm' | 'dak' | 'maten' | 'plattegrond' | 'afdak';
 
 interface BaseItem {
   id: string;
@@ -296,7 +296,63 @@ export interface PlattegrondItem extends BaseItem {
   frameColour?: string;
 }
 
-export type Item = HoekItem | DriehoekItem | VormItem | DakItem | MatenItem | PlattegrondItem;
+export type AfdakSide = 'links' | 'rechts' | 'voor' | 'achter';
+
+/**
+ * A lean-to roof on posts (afdak, overkapping, carport): free-standing or against a building at
+ * the back. Seen from above: width left to right along the building, depth from the building
+ * (or the back) to the front.
+ */
+export interface AfdakItem extends BaseItem {
+  kind: 'afdak';
+  width: string;
+  depth: string;
+  /** Against a building at the back: no posts there, set out from the wall. */
+  attached: boolean;
+  /** Along the wall from the corner of the building to the left edge of the roof (optional). */
+  wallOffset: string;
+  /** Post size: along the width and along the depth (empty = square). */
+  postWidth: string;
+  postDepth: string;
+  /** Number of posts at the front, and at the back when free-standing. */
+  postsFront: string;
+  postsBack: string;
+  /** Roof edge past the outside of the posts: at the sides, front and back. */
+  overhangSide: string;
+  overhangFront: string;
+  overhangBack: string;
+  /** Footing (poer) size, square; empty = not drawn. */
+  footing: string;
+  /** Closed sides, on the post lines. */
+  walls: AfdakSide[];
+  wallThickness: string;
+  /** Roof: rafters on the beams (optional). */
+  roof?: AfdakRoofEntry;
+}
+
+/** Rafters of an afdak. Two of pitch, front height and back height; the third follows. */
+export interface AfdakRoofEntry {
+  pitch: string;
+  /** Top of the front beam, and of the back support, above the floor. */
+  frontHeight: string;
+  backHeight: string;
+  /** Front beam on the posts: width (front to back; empty = post depth) and height. */
+  beamWidth: string;
+  beamHeight: string;
+  /** Back support: the beam against the building, or on the back posts (width front to back). */
+  backWidth: string;
+  rafterWidth: string;
+  rafterHeight: string;
+  rafterSpacing: string;
+  /** Deepest notch: '3' = 1/3 of the rafter height, '4' = 1/4. */
+  notch: '3' | '4';
+}
+
+export function emptyAfdakRoof(): AfdakRoofEntry {
+  return { pitch: '', frontHeight: '', backHeight: '', beamWidth: '', beamHeight: '', backWidth: '', rafterWidth: '', rafterHeight: '', rafterSpacing: '', notch: '3' };
+}
+
+export type Item = HoekItem | DriehoekItem | VormItem | DakItem | MatenItem | PlattegrondItem | AfdakItem;
 
 export interface Project {
   id: string;
@@ -322,6 +378,7 @@ export const KIND_LABELS: Record<ItemKind, string> = {
   dak: 'Dak & spant',
   maten: 'Losse maten',
   plattegrond: 'Plattegrond',
+  afdak: 'Afdak',
 };
 
 export const KIND_HINTS: Record<ItemKind, string> = {
@@ -331,6 +388,7 @@ export const KIND_HINTS: Record<ItemKind, string> = {
   dak: 'Dakhelling, sparlengte en gevelvlak',
   maten: 'Lijst met gemeten maten en labels',
   plattegrond: 'Ruimtes samenvoegen tot een verdieping, met muren, buitenmaat, kap en aanzichten',
+  afdak: 'Afdak of overkapping op staanders: waar de palen en poeren komen, met diagonalen en wanden',
 };
 
 export function newId(): string {
@@ -386,6 +444,25 @@ export function createItem(kind: ItemKind, name?: string): Item {
       };
     case 'maten':
       return { ...base, kind, entries: [{ label: '', value: '' }] };
+    case 'afdak':
+      return {
+        ...base,
+        kind,
+        width: '',
+        depth: '',
+        attached: true,
+        wallOffset: '',
+        postWidth: '0,150',
+        postDepth: '',
+        postsFront: '3',
+        postsBack: '3',
+        overhangSide: '0',
+        overhangFront: '0',
+        overhangBack: '0',
+        footing: '',
+        walls: [],
+        wallThickness: '0,100',
+      };
     case 'plattegrond':
       return {
         ...base,

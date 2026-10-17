@@ -169,6 +169,25 @@ describe('compute', () => {
     expect(bad.status === 'ok' && /negatief/.test(bad.value.buildupMessage ?? '')).toBe(true);
   });
 
+  it('no counter battens in the build-up: battens straight on the rafters, no counter battens counted', () => {
+    const tiles = { ...emptyTiles(), gauge: '308 mm', cover: '204 mm', eavesGap: '245 mm' };
+    const item = { ...(createItem('dak') as DakItem), span: '3', pitch: '18', length: '5', tiles };
+    const withCounter = computeDak({ ...item, buildup: { ...emptyBuildup(), rafter: '150 mm', deck: '18 mm', counter: '22 mm', batten: '22 mm', tile: '68 mm' } });
+    const without = computeDak({ ...item, buildup: { ...emptyBuildup(), rafter: '150 mm', deck: '', counter: '0', batten: '22 mm', tile: '68 mm' } });
+    if (withCounter.status !== 'ok' || without.status !== 'ok') throw new Error('roof');
+    expect(withCounter.value.tiles!.counter).toBe(true);
+    expect(withCounter.value.tiles!.counterBattens).toBeGreaterThan(0);
+    expect(without.value.tiles!.counter).toBe(false);
+    expect(without.value.tiles!.counterBattens).toBeNull();
+    expect(without.value.tiles!.counterLength).toBeNull();
+    // Neither a deck nor counter battens: the battens lie straight on the rafters.
+    const names = without.value.buildup!.lines.map((l) => l.name);
+    expect(names).toEqual(['Onderkant constructie', 'Bovenkant spar / gording', 'Bovenkant panlat', 'Bovenkant pannen']);
+    // Without a build-up nothing is known about counter battens: counted as before.
+    const plain = computeDak(item);
+    expect(plain.status === 'ok' && plain.value.tiles!.counter).toBe(true);
+  });
+
   it('zadeldak: left and right pitch with different wall heights', () => {
     const item = { ...(createItem('dak') as DakItem), span: '6', wallLeft: '3', wallRight: '2,4', pitch: '40', pitchRight: '25' };
     const r = computeDak(item);

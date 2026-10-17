@@ -4,6 +4,7 @@ import { DriehoekEditor } from '../editors/driehoek-editor';
 import { HoekEditor } from '../editors/hoek-editor';
 import { MatenEditor } from '../editors/maten-editor';
 import { PlattegrondEditor } from '../editors/plattegrond-editor';
+import { AfdakEditor } from '../editors/afdak-editor';
 import { VormEditor } from '../editors/vorm-editor';
 import { outlineOf, outlineToDxf, planToDxf, projectToCsv, summarize, toJson } from '../model/export';
 import { computePlattegrond } from '../model/compute-plan';
@@ -18,7 +19,7 @@ import { safeFilename } from '../ui/transfer';
 
 @Component({
   selector: 'app-project-view',
-  imports: [HoekEditor, DriehoekEditor, VormEditor, DakEditor, MatenEditor, PlattegrondEditor, ExportPanel, GroupSelect],
+  imports: [HoekEditor, DriehoekEditor, VormEditor, DakEditor, MatenEditor, PlattegrondEditor, AfdakEditor, ExportPanel, GroupSelect],
   template: `
     @if (project(); as p) {
       <div class="workspace" [class.workspace--item]="!!item()">
@@ -118,6 +119,9 @@ import { safeFilename } from '../ui/transfer';
               @case ('plattegrond') {
                 <app-plattegrond-editor [item]="it" (changed)="store.updateItem($event)" />
               }
+              @case ('afdak') {
+                <app-afdak-editor [item]="it" (changed)="store.updateItem($event)" />
+              }
             }
 
             <label class="field field--text notes" for="item-notes">
@@ -160,7 +164,7 @@ export class ProjectView {
   protected readonly item = this.store.currentItem;
   protected readonly labels = KIND_LABELS;
   protected readonly hints = KIND_HINTS;
-  protected readonly kinds: ItemKind[] = ['vorm', 'plattegrond', 'hoek', 'dak', 'driehoek', 'maten'];
+  protected readonly kinds: ItemKind[] = ['vorm', 'plattegrond', 'afdak', 'hoek', 'dak', 'driehoek', 'maten'];
   protected readonly confirmProject = signal(false);
   protected readonly units: LengthUnit[] = ['m', 'cm', 'mm'];
   protected readonly confirmItem = signal<string | null>(null);

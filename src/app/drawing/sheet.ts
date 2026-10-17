@@ -169,3 +169,46 @@ export function panelTable(x: number, y: number, w: number, title: string, rows:
   });
   return { svg, height: yy - y + 3 };
 }
+
+/**
+ * Several drawings stacked on the left, each at the largest standard scale that fits its share of
+ * the height, with a column of text on the right.
+ */
+export function sheetWithViews(views: View[], shares: number[], meta: SheetMeta, panelWidth: number, panel: (x: number, y: number, w: number, h: number) => string): string {
+  const areaH = A4.h - 2 * MARGIN - STRIP;
+  const w = A4.w - 2 * MARGIN - panelWidth;
+  const total = shares.reduce((a, b) => a + b, 0);
+  let y = MARGIN;
+  let body = '';
+  const scales: number[] = [];
+  views.forEach((view, i) => {
+    const cell: Cell = { x: MARGIN, y, w, h: (areaH * shares[i]) / total };
+    const denominator = commonScale([view], cell);
+    scales.push(denominator);
+    const { pl } = placeIn(view, cell, denominator);
+    body += cellTitle(cell, view.title ?? '', denominator) + renderPrims(view, pl);
+    if (i > 0) body += `<path class="bp-frame-thin" d="M${MARGIN} ${y}H${MARGIN + w}"/>`;
+    y += cell.h;
+  });
+  const px = MARGIN + w;
+  body += `<path class="bp-frame-thin" d="M${px} ${MARGIN}V${MARGIN + areaH}"/>` + panel(px + 3, MARGIN + 3, panelWidth - 6, areaH - 6);
+  body += titleBlock(meta, scales.map((n) => `1:${n}`).join(' · '));
+  return svgPage(body);
+}
+
+/** Text that wraps within w (mm) at the given size; returns the SVG and its height. */
+export function panelNote(x: number, y: number, w: number, text: string, size = 2.2): { svg: string; height: number } {
+  const perLine = Math.max(10, Math.floor(w / (size * 0.56)));
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    if (line && (line + ' ' + word).length > perLine) {
+      lines.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) lines.push(line);
+  const lh = size * 1.35;
+  const svg = lines.map((l, i) => `<text class="bp-muted" x="${x}" y="${y + size + i * lh}" font-size="${size}">${esc(l)}</text>`).join('');
+  return { svg, height: lines.length * lh + 1 };
+}

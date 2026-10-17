@@ -1814,3 +1814,27 @@ app-house-viewer {
 .buildup-fields {
   margin-top: 10px;
 }
+
+/* Afdak */
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+.afdak-svg {
+  margin-top: 12px;
+}
+
+/* Long result values (several numbers) wrap on a phone instead of widening the page. */
+.result dt {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.result dd {
+  min-width: 0;
+}
+@media (max-width: 560px) {
+  .result dd {
+    white-space: normal;
+  }
+}

@@ -127,7 +127,10 @@ export function computeAfdakEntry(item: AfdakEntry, cover = 0): Outcome<AfdakOut
         beamAlign: r.beamAlign ?? 'midden',
         frontNotch: len(r.frontNotch, 'Keep voor'),
         backNotch: against ? null : len(r.backNotch, 'Keep achter'),
-        backThrough: against && !!r.backThrough,
+        backThrough: against && !!r.backThrough && (r.backHanger ?? 'schroef') === 'schroef',
+        backHanger: against ? (r.backHanger ?? 'schroef') : 'schroef',
+        hangerSeat: len(r.hangerSeat, 'Zitdiepte balkdrager') ?? undefined,
+        hangerHeight: len(r.hangerHeight, 'Hoogte balkdrager'),
         frontPocket: len(r.frontPocket, 'Inkeping in voorligger') ?? 0,
         backPocket: against ? 0 : (len(r.backPocket, 'Inkeping in ligger achter') ?? 0),
       };

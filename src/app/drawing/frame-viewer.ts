@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, ElementRef, inject, input, signal } from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
-import { buildFrame, MemberKind } from '../geometry/frame3d';
+import { buildFrame, COVER_KINDS, MemberKind, WALL_KINDS } from '../geometry/frame3d';
 import { DakResult } from '../model/compute';
 import { PrintService } from '../ui/print';
 import { framePieces, frameView, FrameViewOptions, MEMBER_COLOURS, MEMBER_NAMES } from './frame-views';
@@ -41,11 +41,13 @@ import { renderFitted, View } from './vector';
       <div class="check-row">
         <div class="segmented segmented--small" role="radiogroup" aria-label="Pannen en dakbeschot">
           <span class="seg-label">Pannen, beschot</span>
+          <button type="button" role="radio" [attr.aria-checked]="cover() === 'dicht'" (click)="cover.set('dicht')">Dicht</button>
           <button type="button" role="radio" [attr.aria-checked]="cover() === 'doorzichtig'" (click)="cover.set('doorzichtig')">Doorzichtig</button>
           <button type="button" role="radio" [attr.aria-checked]="cover() === 'uit'" (click)="cover.set('uit')">Uit</button>
         </div>
         <div class="segmented segmented--small" role="radiogroup" aria-label="Wanden">
-          <span class="seg-label">Wanden</span>
+          <span class="seg-label">Wanden, gevels</span>
+          <button type="button" role="radio" [attr.aria-checked]="walls() === 'dicht'" (click)="walls.set('dicht')">Dicht</button>
           <button type="button" role="radio" [attr.aria-checked]="walls() === 'doorzichtig'" (click)="walls.set('doorzichtig')">Doorzichtig</button>
           <button type="button" role="radio" [attr.aria-checked]="walls() === 'uit'" (click)="walls.set('uit')">Uit</button>
         </div>
@@ -83,6 +85,8 @@ export class FrameViewer {
   /** While turning a big roof: without battens and counter battens, so it keeps up with the finger. */
   private readonly dragging = signal(false);
   private readonly heavy = computed(() => this.pieces().length > 1500);
+  /** Larger blocks while turning: fewer to sort and draw (an odd overlap for a moment is fine). */
+  private readonly coarse = computed(() => framePieces(this.frame(), 1.2));
   private drag: { x: number; y: number; az: number; el: number; id: number } | null = null;
 
   constructor() {
@@ -108,7 +112,13 @@ export class FrameViewer {
 
   protected readonly kinds = computed(() => {
     const present = new Set(this.frame().members.map((m) => m.kind));
-    return (Object.keys(MEMBER_NAMES) as MemberKind[]).filter((k) => present.has(k) && (this.battens() || (k !== 'batten' && k !== 'counter')));
+    return (Object.keys(MEMBER_NAMES) as MemberKind[]).filter(
+      (k) =>
+        present.has(k) &&
+        (this.battens() || (k !== 'batten' && k !== 'counter')) &&
+        (!COVER_KINDS.includes(k) || this.cover() === 'dicht') &&
+        (!WALL_KINDS.includes(k) || this.walls() === 'dicht'),
+    );
   });
   protected colour(k: MemberKind): string {
     return `rgb(${MEMBER_COLOURS[k].join(',')})`;
@@ -119,7 +129,7 @@ export class FrameViewer {
 
   private view(title?: string, light = false): View {
     const battens = this.battens() && !light;
-    return frameView(this.frame(), this.pieces(), { azimuth: this.azimuth(), elevation: this.elevation() }, { cover: this.cover(), walls: this.walls(), battens, title });
+    return frameView(this.frame(), light ? this.coarse() : this.pieces(), { azimuth: this.azimuth(), elevation: this.elevation() }, { cover: this.cover(), walls: this.walls(), battens, title });
   }
 
   protected readonly svg = computed(() => {

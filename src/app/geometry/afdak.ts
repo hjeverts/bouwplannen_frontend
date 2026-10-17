@@ -206,6 +206,25 @@ export interface AfdakRoofInput {
    */
   frontPocket?: number;
   backPocket?: number;
+  /**
+   * 'tegen': how the rafter is held at the wall beam: screwed, or in a joist hanger (balkdrager)
+   * that tilts with the roof ('hellend'), or one with a level seat ('vlak': the rafter's end gets a
+   * small level seat cut, `hangerSeat` long).
+   */
+  backHanger?: 'schroef' | 'hellend' | 'vlak';
+  hangerSeat?: number;
+  /** Height of the hanger (plumb); null = 3/4 of the rafter. */
+  hangerHeight?: number | null;
+}
+
+export interface Hanger {
+  kind: 'hellend' | 'vlak';
+  /** Seat depth along the roof (level for 'vlak'), and the heel the level seat leaves in the rafter. */
+  seat: number;
+  heel: number;
+  /** Bottom of the hanger at the beam face, and its height (plumb). */
+  bottom: number;
+  height: number;
 }
 
 export interface Seat {
@@ -237,6 +256,8 @@ export interface Seat {
   /** Pocket in the beam at each rafter (plumb depth); the seat lies at `floor` = z − pocket. */
   pocket: number;
   floor: number;
+  /** Against the beam in a joist hanger. */
+  hanger?: Hanger;
 }
 
 export interface Rafter {
@@ -378,6 +399,16 @@ export function computeRafters(plan: AfdakResult, roof: AfdakRoofInput): Rafter 
   // The underside passes the front heel its plumb cut below the seat (the beam top, or its pocket).
   const undersideAt = (s: number) => front.floor - front.plumb - Math.tan(a) * (s - f1);
   const start = against && !through ? b1 : 0;
+  if (against && !through && roof.backHanger && roof.backHanger !== 'schroef') {
+    const L = roof.hangerSeat && roof.hangerSeat > 0 ? roof.hangerSeat : 0.07;
+    const H = roof.hangerHeight && roof.hangerHeight > 0 ? roof.hangerHeight : 0.75 * h;
+    const kind = roof.backHanger;
+    // Level seat: from the end's bottom corner level into the rafter, then a heel down to its underside.
+    back.hanger = { kind, seat: L, heel: kind === 'vlak' ? L * Math.tan(a) : 0, bottom: undersideAt(b1), height: H };
+    const above = undersideAt(b1) + H - zb;
+    if (above > 0.001) warnings.push(`Balkdrager: steekt ${Math.round(above * 1000)} mm boven de ligger uit (drager ${Math.round(H * 1000)} mm hoog). Kies een lagere balkdrager of zet de spoor lager.`);
+    if (H < 0.6 * h - 1e-9) warnings.push(`Balkdrager: ${Math.round(H * 1000)} mm hoog is minder dan 60% van de spoor (${Math.round(h * 1000)} mm); kies er een die hoger is.`);
+  }
   if (through && offset <= 0.005) warnings.push('Ligger tegen gebouw: zet de bovenkant van de spoor boven de ligger (bijvoorbeeld 30 mm), anders is er geen neus die tot de muur doorloopt.');
   const length = (plan.depth - start) / Math.cos(a);
   const top = (s: number) => undersideAt(s) + h / Math.cos(a);
@@ -450,6 +481,8 @@ export function rafterOutline(r: Rafter, depth: number, h: number): { x: number;
     ...notch(front),
     // Against the beam: no notch; with a nose to the wall the seat on the beam reaches the end.
     ...(back.through ? [{ x: back.s1, y: zu(back.s1) }, { x: back.s1, y: back.z }, { x: S0, y: back.z }] : back.against ? [] : notch(back)),
+    // In a hanger with a level seat: a small level cut at the end, with a heel.
+    ...(back.hanger?.kind === 'vlak' ? [{ x: S0 + back.hanger.seat, y: zu(S0 + back.hanger.seat) }, { x: S0 + back.hanger.seat, y: zu(S0) }] : []),
     ...(back.through ? [] : [{ x: S0, y: zu(S0) }]),
   ].filter((p, i, arr) => i === 0 || Math.hypot(p.x - arr[i - 1].x, p.y - arr[i - 1].y) > 1e-6);
 }

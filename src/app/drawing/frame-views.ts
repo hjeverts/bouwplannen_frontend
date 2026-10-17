@@ -4,7 +4,7 @@
  * see-through on top (or left out), so they never hide the timber.
  */
 import { Camera, P3, projector, viewDirection } from '../geometry/building';
-import { Frame, GhostKind, MemberKind, Piece, piecesOf } from '../geometry/frame3d';
+import { COVER_KINDS, Frame, GhostKind, MemberKind, Piece, piecesOf, WALL_KINDS } from '../geometry/frame3d';
 import { Point } from '../geometry/geometry';
 import { Prim, View } from './vector';
 
@@ -12,9 +12,14 @@ export const MEMBER_COLOURS: Record<MemberKind, [number, number, number]> = {
   footing: [168, 168, 160],
   post: [176, 138, 92],
   beam: [196, 156, 104],
+  hanger: [150, 160, 168],
   rafter: [226, 196, 140],
+  deck: [214, 190, 146],
   counter: [150, 178, 120],
   batten: [214, 120, 84],
+  tiles: [168, 78, 54],
+  wall: [190, 182, 166],
+  building: [160, 104, 84],
 };
 
 export const MEMBER_NAMES: Record<MemberKind, string> = {
@@ -24,6 +29,11 @@ export const MEMBER_NAMES: Record<MemberKind, string> = {
   rafter: 'Spoor',
   counter: 'Tengel',
   batten: 'Panlat',
+  hanger: 'Balkdrager',
+  deck: 'Dakbeschot',
+  tiles: 'Pannen',
+  wall: 'Wand',
+  building: 'Gebouw / gevel',
 };
 
 const GHOST_COLOURS: Record<GhostKind, string> = {
@@ -47,20 +57,20 @@ function shade(rgb: [number, number, number], normal: P3): string {
 
 export interface FrameViewOptions {
   /** Tiles and decking: see-through, or left out. */
-  cover: 'doorzichtig' | 'uit';
-  walls: 'doorzichtig' | 'uit';
+  cover: 'dicht' | 'doorzichtig' | 'uit';
+  walls: 'dicht' | 'doorzichtig' | 'uit';
   /** Battens and counter battens. */
   battens: boolean;
   title?: string;
 }
 
 /** Blocks of every member; worked out once, then only projected when the view turns. */
-export function framePieces(frame: Frame): Piece[] {
-  return frame.members.flatMap(piecesOf);
+export function framePieces(frame: Frame, block?: number): Piece[] {
+  return frame.members.flatMap((m) => piecesOf(m, block));
 }
 
 /** Order of the layers on a roof plane, from the inside out. */
-const RANK: Partial<Record<MemberKind, number>> = { rafter: 0, counter: 1, batten: 2 };
+const RANK: Partial<Record<MemberKind, number>> = { rafter: 0, deck: 1, counter: 2, batten: 3, tiles: 4 };
 
 /**
  * Far to near. Sorting blocks by their centre alone goes wrong where thin members lie on each
@@ -98,8 +108,16 @@ export function drawOrder(frame: Frame, pieces: Piece[], cam: Camera): Piece[] {
     .map((g, i) => ({ g, d: mean(g), i }))
     .sort((a, b) => b.d - a.d)
     .flatMap((x) => x.g);
-  // The supports stand under the first plane (an afdak has one).
-  return above[0] ? [...supports, ...roof] : [...roof, ...supports];
+  // The supports stand under the roof: drawn before it when any roof plane faces the viewer.
+  // The wall of a building an afdak leans against stands behind the roof (beyond its planes):
+  // it comes first, unless it is seen from behind.
+  const back = Math.max(...planes.map((pl) => pl.u1));
+  const behind = (p: Piece) => p.kind === 'building' && p.centre.y > back - 1e-6;
+  const wall = supports.filter(behind);
+  const under = supports.filter((p) => !behind(p));
+  const seenFromBehind = view.y > 0;
+  const below = above.some(Boolean) ? [...under, ...roof] : [...roof, ...under];
+  return seenFromBehind ? [...below, ...wall] : [...wall, ...below];
 }
 
 export function frameView(frame: Frame, pieces: Piece[], cam: Camera, opts: FrameViewOptions): View {
@@ -114,7 +132,12 @@ export function frameView(frame: Frame, pieces: Piece[], cam: Camera, opts: Fram
   // See-through sheets: those behind the timber first, those in front of it last.
   const ghosts = frame.ghosts.filter((g) => (g.kind === 'wall' ? opts.walls : opts.cover) === 'doorzichtig');
   const depthOf = (pts: P3[]) => pts.reduce((s, p) => s + proj(p).depth, 0) / pts.length;
-  const shown = pieces.filter((p) => opts.battens || (p.kind !== 'batten' && p.kind !== 'counter'));
+  const shown = pieces.filter(
+    (p) =>
+      (opts.battens || (p.kind !== 'batten' && p.kind !== 'counter')) &&
+      (!COVER_KINDS.includes(p.kind) || opts.cover === 'dicht') &&
+      (!WALL_KINDS.includes(p.kind) || opts.walls === 'dicht'),
+  );
   const mid = shown.length ? shown.reduce((s, p) => s + proj(p.centre).depth, 0) / shown.length : 0;
   const ghostPrim = (g: (typeof ghosts)[number]): Prim => ({ t: 'poly', rings: [g.pts.map(to2)], cls: g.kind === 'deck' ? 'ghost ghost-faint' : 'ghost', fill: GHOST_COLOURS[g.kind] });
   const ordered = ghosts.map((g) => ({ g, d: depthOf(g.pts) })).sort((a, b) => b.d - a.d);

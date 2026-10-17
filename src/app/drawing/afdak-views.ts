@@ -161,6 +161,12 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
   // Pockets in the beams: the level bottom of the cut, seen through the rafter's side.
   for (const st of [front, back]) if (st.pocket > 1e-6) prims.push({ t: 'line', pts: [{ x: st.s0, y: st.floor }, { x: st.s1, y: st.floor }], cls: 'sym-thin' });
   prims.push({ t: 'poly', rings: [outline], cls: 'f', fill: WOOD });
+  // A joist hanger: its back plate on the face of the beam and its seat under the rafter.
+  if (back.hanger) {
+    const hg = back.hanger;
+    const seatEnd = hg.kind === 'vlak' ? { x: back.s1 + hg.seat, y: hg.bottom } : { x: back.s1 + hg.seat, y: zu(back.s1 + hg.seat) };
+    prims.push({ t: 'line', pts: [{ x: back.s1, y: hg.bottom + hg.height }, { x: back.s1, y: hg.bottom }, seatEnd], cls: 'ground' });
+  }
   // The roof build-up on the rafters: decking, counter battens, battens, tiles.
   for (const l of layers) prims.push({ t: 'line', pts: l.pts, cls: l.name === 'Bovenkant pannen' ? 'sym' : 'sym-thin' });
   const tilesTop = layers.find((l) => l.name === 'Bovenkant pannen');
@@ -219,11 +225,21 @@ export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { 
       : `${st.name.toLowerCase()}: zit ${mm(st.length)}, keep ${mm(st.depth)} diep${st.housed ? ` (ingekeept, loodsneden ${mm(st.plumb)} en ${mm(st.upPlumb ?? 0)})` : ''}, ${mm(st.left)} over${st.pocket > 0 ? `; ligger ${mm(st.pocket)} ingekeept` : ''}`;
     prims.push({ t: 'text', at: { x: i.x, y: base }, text, cls: 'label-sub', size: 2.1, dy: -20 - (st === back ? 0 : 3.4), anchor: 'middle' });
   }
+  // A hanger with a level seat: the small level cut at the rafter's end, and its heel.
+  if (back.hanger?.kind === 'vlak') {
+    const hg = back.hanger;
+    const c0 = flat({ x: S0, y: zu(S0) });
+    const c1 = flat({ x: S0 + hg.seat, y: zu(S0) });
+    const c2 = flat({ x: S0 + hg.seat, y: zu(S0 + hg.seat) });
+    prims.push({ t: 'line', pts: [c0, c1, c2], cls: 'sym' });
+    prims.push({ t: 'dim', a: c0, b: c1, off: 4, text: mm(hg.seat), ext: false });
+    prims.push({ t: 'text', at: { x: c1.x, y: base }, text: `balkdrager: vlakke zit ${mm(hg.seat)}, hiel ${mm(hg.heel)}`, cls: 'label-sub', size: 2.1, dy: -20 - 6.8, anchor: 'start' });
+  }
   // End cuts; against the beam the back cut is the face that is screwed to it.
   const backCut = back.through
     ? `loodsnede ${deg(90 - r.pitch)} tegen de muur`
     : back.against
-      ? `loodsnede ${deg(90 - r.pitch)}, ${mm(back.plumb)} hoog, tegen de ligger`
+      ? `loodsnede ${deg(90 - r.pitch)}, ${mm(back.plumb)} hoog, ${back.hanger ? 'in de balkdrager' : 'tegen de ligger'}`
       : `loodsnede ${deg(90 - r.pitch)}`;
   prims.push({ t: 'text', at: { x: (tl.x + bl.x) / 2, y: (tl.y + bl.y) / 2 }, text: backCut, cls: 'label-sub', size: 2.1, dx: -2, anchor: 'end' });
   prims.push({ t: 'text', at: { x: (tr.x + br.x) / 2, y: (tr.y + br.y) / 2 }, text: `loodsnede ${deg(90 - r.pitch)}`, cls: 'label-sub', size: 2.1, dx: 2, anchor: 'start' });
@@ -297,16 +313,18 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: Afdak
         ['Dakhelling', deg(r.pitch)],
         ['Loodsnede (einden)', `${deg(90 - r.pitch)} op de spoor`],
         ['Zit (vogelbek)', `${deg(r.pitch)} op de spoor`],
+        ...(r.seats[0].hanger ? [[`Balkdragers (${r.seats[0].hanger.kind === 'hellend' ? 'kantelbaar' : 'vlakke zit'})`, `${r.xs.length} × ${mm(o.rafterWidth!)} br., ${mm(r.seats[0].hanger.height)} h`]] : []),
       ],
       [34],
     );
     const [back, front] = r.seats;
     const b = (v: string) => (back.against && !back.through ? '–' : v);
     const rows: string[][] = [
-      ['', back.through ? 'achter: neus' : back.against ? 'achter: tegen' : 'achter', 'voor'],
+      ['', back.through ? 'achter: neus' : back.hanger ? 'achter: drager' : back.against ? 'achter: tegen' : 'achter', 'voor'],
       [back.through ? 'Zit / neus tot de muur' : 'Zit (horizontaal)', b(mm(back.length)), mm(front.length)],
       [back.against ? 'Loodrechte snede (achter: kops)' : 'Loodrechte snede', mm(back.plumb), mm(front.plumb)],
     ];
+    if (back.hanger?.kind === 'vlak') rows.push(['Vlakke zit / hiel (drager)', `${mm(back.hanger.seat)} / ${mm(back.hanger.heel)}`, '–']);
     if (back.pocket > 0 || front.pocket > 0) rows.push([`Inkeping ligger (${mm(o.rafterWidth ?? 0)} breed)`, b(back.pocket > 0 ? mm(back.pocket) : '–'), front.pocket > 0 ? mm(front.pocket) : '–']);
     if (back.housed || front.housed) rows.push(['Tweede loodsnede (ingekeept)', back.housed ? mm(back.upPlumb ?? 0) : '–', front.housed ? mm(front.upPlumb ?? 0) : '–']);
     rows.push(
@@ -334,7 +352,11 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: Afdak
     }
     table('Hoogtes vanaf de vloer', hrows, [30]);
     const fix = back.against
-      ? ` Aan de muurkant eindigt de spoor tegen de ligger, bovenkant ${o.backOffset ? `${mm(o.backOffset)} boven` : 'gelijk met'} de ligger: schuin schroeven of een balkdrager.`
+      ? ` Aan de muurkant eindigt de spoor tegen de ligger, bovenkant ${o.backOffset ? `${mm(o.backOffset)} boven` : 'gelijk met'} de ligger: ${
+          back.hanger
+            ? `in een balkdrager (${back.hanger.kind === 'hellend' ? 'kantelbaar' : 'vlakke zit'}), onderkant drager ${mm(back.hanger.bottom)} vanaf de vloer.`
+            : 'schuin schroeven.'
+        }`
       : '';
     const note = panelNote(x, yy + 1, w, `Maten langs de onderkant van de spoor, vanaf het achtereind. Keep nooit dieper dan ${o.notch === '4' ? '1/4' : '1/3'} van de spoorhoogte.${fix}`);
     svg += note.svg;
@@ -404,7 +426,7 @@ export function afdakBeamView(o: AfdakOutcome, which: 0 | 1): View | null {
   prims.push({ t: 'dim', a: { x: 0, y: yd }, b: { x: W, y: yd }, off: posts.length ? -15 : -8, text: mm(W) });
   // Across: the beam's width.
   prims.push({ t: 'dim', a: { x: W, y: 0 }, b: { x: W, y: bw }, off: -5, text: mm(bw) });
-  const what = pocket ? 'inkepingen' : seat.against ? 'sporen ertegen' : 'sporen erop';
+  const what = pocket ? 'inkepingen' : seat.hanger ? 'balkdragers' : seat.against ? 'sporen ertegen' : 'sporen erop';
   return { prims, title: `${name} ${mm(bw)} × ${mm(beam.height)}, van boven: ${what} (maat tot linkerkant spoor)`, scalable: true };
 }
 
@@ -481,7 +503,10 @@ export function afdakBeamSheet(o: AfdakOutcome, meta: SheetMeta): string | null 
       rows.push([`${b.name}`, `${mm(o.plan.width)} lang`]);
       rows.push(['  maat', `${mm(st.s1 - st.s0)} × ${mm(b.height)}`]);
       if (st.pocket > 1e-6) rows.push(['  inkeping per spoor', `${mm(rw)} br. × ${mm(st.pocket)} diep`]);
-      else if (st.against) rows.push(['  sporen', 'ertegen, kops']);
+      else if (st.hanger) {
+        rows.push(['  balkdragers', `${r.xs.length} × ${mm(rw)} br.`]);
+        rows.push(['  onderkant drager', `${mm(st.hanger.bottom - (st.z - b.height))} boven onderkant ligger`]);
+      } else if (st.against) rows.push(['  sporen', 'ertegen, kops']);
       else rows.push(['  sporen', 'erop, met keep']);
     }
     table('Liggers', rows, [28]);

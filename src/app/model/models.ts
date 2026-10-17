@@ -367,6 +367,10 @@ export interface AfdakRoofEntry {
   /** Depth of the notch at the heel, square to the rafter (empty = automatic): front beam, and back beam when on top. */
   frontNotch?: string;
   backNotch?: string;
+  /** 'tegen': screwed to the wall beam, or in a joist hanger (tilting, or with a level seat). */
+  backHanger?: 'schroef' | 'hellend' | 'vlak';
+  hangerSeat?: string;
+  hangerHeight?: string;
   /** Top of the tiles at the wall (or the back edge), instead of the back height: worked back through the build-up. */
   tileTop?: string;
   /** Pockets in the beams at every rafter, plumb depth (empty = none). */

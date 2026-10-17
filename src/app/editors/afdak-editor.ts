@@ -126,11 +126,31 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
           <button type="button" role="radio" [attr.aria-checked]="item().roof?.backFix === 'tegen'" (click)="setRoof('backFix', 'tegen')">Spoor tegen de ligger, geschroefd</button>
         </div>
         @if (item().roof?.backFix === 'tegen') {
-          <p class="hint">De spoor eindigt met een loodsnede tegen de voorkant van de ligger en wordt daaraan vastgezet (schuin schroeven of een balkdrager). Geen keep aan de muurkant.</p>
-          <label class="check">
-            <input type="checkbox" [checked]="!!item().roof?.backThrough" (change)="setRoofFlag('backThrough', !item().roof?.backThrough)" />
-            Boven de ligger doorlopen tot de muur (neus voor de bovenste panlat)
-          </label>
+          <p class="hint">De spoor eindigt met een loodsnede tegen de voorkant van de ligger. Geen keep aan de muurkant.</p>
+          <div class="segmented segmented--small" role="radiogroup" aria-label="Bevestiging aan de ligger">
+            <button type="button" role="radio" [attr.aria-checked]="hanger() === 'schroef'" (click)="setRoof('backHanger', 'schroef')">Schuin geschroefd</button>
+            <button type="button" role="radio" [attr.aria-checked]="hanger() === 'hellend'" (click)="setRoof('backHanger', 'hellend')">Balkdrager, kantelbaar</button>
+            <button type="button" role="radio" [attr.aria-checked]="hanger() === 'vlak'" (click)="setRoof('backHanger', 'vlak')">Balkdrager, vlakke zit</button>
+          </div>
+          @if (hanger() === 'schroef') {
+            <label class="check">
+              <input type="checkbox" [checked]="!!item().roof?.backThrough" (change)="setRoofFlag('backThrough', !item().roof?.backThrough)" />
+              Boven de ligger doorlopen tot de muur (neus voor de bovenste panlat)
+            </label>
+          } @else {
+            <p class="hint">
+              {{
+                hanger() === 'hellend'
+                  ? 'Een kantelbare (hellende) balkdrager volgt de dakhelling: de spoor krijgt alleen de loodsnede.'
+                  : 'Een gewone balkdrager heeft een vlakke zit: de spoor krijgt onderaan het eind een kleine horizontale zit, zodat hij vlak in de drager ligt.'
+              }}
+              Neem de maten over van de balkdrager die je koopt.
+            </p>
+            <div class="fields fields--3">
+              <app-measure-field label="Zitdiepte balkdrager" [value]="rf('hangerSeat')" (valueChange)="setRoof('hangerSeat', $event)" placeholder="0,070" hint="Hoe ver de spoor in de drager ligt" />
+              <app-measure-field label="Hoogte balkdrager" [value]="rf('hangerHeight')" (valueChange)="setRoof('hangerHeight', $event)" [placeholder]="hangerHeightPlaceholder()" hint="Leeg = 3/4 van de spoorhoogte" />
+            </div>
+          }
           <div class="fields fields--3">
             <app-measure-field label="Bovenkant spoor t.o.v. ligger" [value]="rf('backOffset')" (valueChange)="setRoof('backOffset', $event)" placeholder="0" hint="0 = gelijk met de bovenkant; negatief = lager" />
             <app-measure-field label="Ligger tegen gebouw hoog" [value]="rf('backBeamHeight')" (valueChange)="setRoof('backBeamHeight', $event)" hint="Om te controleren dat de spoor op de ligger blijft" />
@@ -279,6 +299,11 @@ export class AfdakPanel {
       if (r.backPost !== null) rows.push({ label: 'Staanders achter, lengte', value: formatLength(r.backPost) });
       for (const st of r.seats) {
         if (st.through) rows.push({ label: `Spoor tegen ${st.name.toLowerCase()}`, value: `kops ${formatMm(st.plumb)} · neus ${formatMm(st.left)} tot de muur` });
+        else if (st.hanger)
+          rows.push({
+            label: `Balkdragers (${st.hanger.kind === 'hellend' ? 'kantelbaar' : 'vlakke zit'})`,
+            value: `${r.xs.length} stuks · onderkant ${formatLength(st.hanger.bottom)}${st.hanger.kind === 'vlak' ? ` · zit ${formatMm(st.hanger.seat)}, hiel ${formatMm(st.hanger.heel)}` : ''}`,
+          });
         else if (st.against) rows.push({ label: `Spoor tegen ${st.name.toLowerCase()}`, value: `loodsnede ${formatMm(st.plumb)} hoog` });
         else rows.push({ label: `Keep ${st.name.toLowerCase()}`, value: `${st.housed ? 'ingekeept · ' : ''}zit ${formatMm(st.length)} · ${formatMm(st.depth)} diep · ${formatMm(st.left)} over` });
         if (st.pocket > 0) rows.push({ label: `Inkeping in ${st.name.toLowerCase()}`, value: `${r.xs.length} × ${formatMm(st.pocket)} diep, ${formatMm(v.rafterWidth ?? 0)} breed, ${formatLength(r.spacing)} h.o.h.` });
@@ -288,6 +313,12 @@ export class AfdakPanel {
   });
 
   /** What the app works out for the field left empty. */
+  protected readonly hanger = computed(() => this.item().roof?.backHanger ?? 'schroef');
+  protected hangerHeightPlaceholder(): string {
+    const h = this.value()?.rafters?.seats[0].hanger?.height;
+    return h ? lengthInput(h, 'm') : '';
+  }
+
   protected placeholder(which: 'pitch' | 'front' | 'back' | 'tiles'): string {
     const v = this.value();
     const r = v?.rafters;

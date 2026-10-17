@@ -149,3 +149,32 @@ describe('3D construction', () => {
     }
   });
 });
+
+describe('3D construction: hangers, tiles and walls', () => {
+  it('puts a joist hanger under every rafter at the wall beam', () => {
+    const d = ok(afdakDak({ afdak: { ...afdak, roof: { ...afdak.roof!, backFix: 'tegen', backHanger: 'vlak', backBeamHeight: '0,2' } } }));
+    const f = buildFrame(d);
+    expect(f.members.filter((m) => m.kind === 'hanger').length).toBe(4 * d.afdak!.rafters!.xs.length);
+  });
+
+  it('builds tiles row by row, decking and walls as solid members, shown only when closed', () => {
+    const d = ok(kap());
+    const f = buildFrame(d);
+    const rows = d.tiles!.planes.reduce((s, p) => s + p.battens + 1, 0);
+    expect(f.members.filter((m) => m.kind === 'tiles').length).toBe(rows);
+    expect(f.members.filter((m) => m.kind === 'deck').length).toBe(1);
+    expect(f.members.filter((m) => m.kind === 'building').length).toBe(2);
+    const pieces = framePieces(f);
+    const cam = { azimuth: -35, elevation: 28 };
+    const fills = (cover: 'dicht' | 'uit', walls: 'dicht' | 'uit') =>
+      new Set(frameView(f, pieces, cam, { cover, walls, battens: true }).prims.flatMap((p) => (p.t === 'poly' && p.cls === 'solid' ? [p.fill] : [])));
+    const closed = fills('dicht', 'dicht');
+    const open = fills('uit', 'uit');
+    expect(closed.size).toBeGreaterThan(open.size);
+    // Seen from above, the tiles are the last thing drawn: they cover the battens.
+    const view = frameView(f, pieces, { azimuth: 0, elevation: 60 }, { cover: 'dicht', walls: 'uit', battens: true });
+    const solids = view.prims.filter((p) => p.t === 'poly' && p.cls === 'solid');
+    const last = solids[solids.length - 1] as { fill: string };
+    expect(last.fill).toMatch(/^rgb\((1[0-6]\d),/);
+  });
+});

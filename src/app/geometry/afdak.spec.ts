@@ -556,3 +556,52 @@ describe('afdak worked back from the top of the tiles at the wall', () => {
     expect(o.value.tileTopAtWall).toBeCloseTo(2.8, 6);
   });
 });
+
+describe('afdak rafters in joist hangers at the wall beam', () => {
+  const plan = computeAfdak(base);
+  const A = (18 * Math.PI) / 180;
+
+  it('gives a level seat at the rafter end for a hanger with a level seat', () => {
+    const r = computeRafters(plan, { ...roof, backFix: 'tegen', backHanger: 'vlak', hangerSeat: 0.07, backBeamHeight: 0.2 });
+    const back = r.seats[0];
+    expect(back.hanger!.kind).toBe('vlak');
+    expect(back.hanger!.heel).toBeCloseTo(0.07 * Math.tan(A), 12);
+    expect(back.hanger!.bottom).toBeCloseTo(r.undersideAt(back.s1), 12);
+    // Outline: the level cut from the end, then the heel down to the underside.
+    const outline = rafterOutline(r, plan.depth, 0.15);
+    const level = outline.filter((p) => Math.abs(p.y - back.hanger!.bottom) < 1e-9);
+    expect(level.map((p) => p.x).sort()).toEqual([expect.closeTo(back.s1, 9), expect.closeTo(back.s1 + 0.07, 9)]);
+    // A hanger changes nothing about the heights.
+    const plain = computeRafters(plan, { ...roof, backFix: 'tegen', backBeamHeight: 0.2 });
+    expect(r.backHeight).toBeCloseTo(plain.backHeight, 12);
+  });
+
+  it('only cuts the plumb end for a tilting hanger, and checks the hanger fits on the beam', () => {
+    const r = computeRafters(plan, { ...roof, backFix: 'tegen', backHanger: 'hellend', backBeamHeight: 0.2 });
+    expect(r.seats[0].hanger!.heel).toBe(0);
+    expect(r.seats[0].hanger!.height).toBeCloseTo(0.75 * 0.15, 12);
+    expect(rafterOutline(r, plan.depth, 0.15).length).toBe(rafterOutline(computeRafters(plan, { ...roof, backFix: 'tegen', backBeamHeight: 0.2 }), plan.depth, 0.15).length);
+    const tall = computeRafters(plan, { ...roof, backFix: 'tegen', backHanger: 'hellend', hangerHeight: 0.3, backBeamHeight: 0.2 });
+    expect(tall.warnings.some((w) => /boven de ligger uit/.test(w))).toBe(true);
+    const low = computeRafters(plan, { ...roof, backFix: 'tegen', backHanger: 'hellend', hangerHeight: 0.06, backBeamHeight: 0.2 });
+    expect(low.warnings.some((w) => /minder dan 60%/.test(w))).toBe(true);
+  });
+
+  it('has no nose to the wall with a hanger, and puts the hangers on the sheets', () => {
+    const e: AfdakEntry = {
+      ...emptyAfdak(),
+      sizeOf: 'totaal',
+      width: '5',
+      depth: '1,5',
+      roof: { ...emptyAfdakRoof(), pitch: '18', frontHeight: '2,2', beamHeight: '0,15', backWidth: '0,15', rafterWidth: '0,05', rafterHeight: '0,15', backFix: 'tegen', backThrough: true, backHanger: 'vlak', backBeamHeight: '0,2' },
+    };
+    const o = computeAfdakEntry(e);
+    if (o.status !== 'ok') throw new Error(o.message);
+    expect(o.value.rafters!.seats[0].through).toBeFalsy();
+    expect(o.value.rafters!.seats[0].hanger).toBeTruthy();
+    const saw = afdakRafterSheet(o.value, { project: 'Schuur', subject: 'Afdak' })!;
+    expect(saw).toContain('Balkdragers (vlakke zit)');
+    expect(saw).toContain('balkdrager: vlakke zit 70');
+    expect(afdakBeamSheet(o.value, { project: 'Schuur', subject: 'Afdak' })!).toContain('balkdragers');
+  });
+});

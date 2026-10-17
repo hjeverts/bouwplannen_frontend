@@ -14,7 +14,11 @@ import { P3 } from './building';
 import { BuildupLine, heightOn, offsetLine } from './buildup';
 import { Point } from './geometry';
 
-export type MemberKind = 'footing' | 'post' | 'beam' | 'rafter' | 'counter' | 'batten';
+export type MemberKind = 'footing' | 'post' | 'beam' | 'hanger' | 'rafter' | 'deck' | 'counter' | 'batten' | 'tiles' | 'wall' | 'building';
+
+/** Cladding and covering: shown solid only when asked ("dicht"); otherwise as see-through sheets. */
+export const COVER_KINDS: MemberKind[] = ['deck', 'tiles'];
+export const WALL_KINDS: MemberKind[] = ['wall', 'building'];
 export type GhostKind = 'tiles' | 'deck' | 'wall';
 
 export interface Prism {
@@ -52,6 +56,10 @@ export const BATTEN_WIDTH = 0.035;
 export const COUNTER_WIDTH = 0.05;
 /** Battens without a thickness in the build-up. */
 const BATTEN_FALLBACK = 0.022;
+/** Thickness of a solid wall drawn for a building whose walls are not entered. */
+const WALL = 0.1;
+/** Sheet steel of a joist hanger (drawn a little thick so it shows). */
+const STEEL = 0.003;
 /** The part of a footing shown, just under the ground. */
 const FOOTING_TOP = 0.1;
 
@@ -110,6 +118,7 @@ function layersOnTop(
   }
   // Battens: where the tile layout puts them, measured on their top from the highest point.
   const tiles = dak.tiles;
+  let tiled = false;
   if (tiles && tiles.planes.length) {
     const bi = idx('Bovenkant panlat');
     let top: Point[];
@@ -124,6 +133,8 @@ function layersOnTop(
       top = offsetLine((tileTop > 0 ? lines[tileTop - 1] : lines[lines.length - 1]).pts, t);
       frame.notes.push(`Panlatdikte niet ingevuld: getekend met ${mm(t)}.`);
     }
+    const tileTopIdx = idx('Bovenkant pannen');
+    const tileT = tileTopIdx > 0 ? lines[tileTopIdx].offset - lines[tileTopIdx - 1].offset : 0;
     const hi = top.reduce((best, p, i) => (p.y > top[best].y ? i : best), 0);
     const ends = tiles.planes.length === 1 ? [hi === 0 ? top.length - 1 : 0] : [0, top.length - 1];
     tiles.planes.forEach((plane, k) => {
@@ -145,12 +156,29 @@ function layersOnTop(
         const drop = (p: Point): Point => ({ x: p.x - n.x * t, y: p.y - n.y * t });
         frame.members.push({ kind: 'batten', poly: [a, b, drop(b), drop(a)], w0, w1 });
       }
+      // Tiles, row by row on the battens (each row a strip, so the rows show).
+      if (tileT > 0) {
+        const lift = (p: Point): Point => ({ x: p.x + n.x * tileT, y: p.y + n.y * tileT });
+        const cuts = [0, ...marks.slice(0, -1).filter((m) => m > 0 && m < L), L];
+        for (let i = 0; i + 1 < cuts.length; i++) {
+          const a = at(cuts[i]);
+          const b = at(cuts[i + 1]);
+          frame.members.push({ kind: 'tiles', poly: [a, b, lift(b), lift(a)], w0, w1 });
+        }
+        tiled = true;
+      }
     });
   } else if (idx('Bovenkant panlat') > 0) {
     frame.notes.push('Vul de pannen in (latafstand, laatste latafstand) om de panlatten te zien.');
   }
   const deck = idx('Bovenkant dakbeschot');
-  if (deck > 0) frame.ghosts.push(...sheetAlong('deck', lines[deck].pts, w0, w1));
+  if (deck > 0) {
+    frame.ghosts.push(...sheetAlong('deck', lines[deck].pts, w0, w1));
+    frame.members.push({ kind: 'deck', poly: [...lines[deck - 1].pts, ...[...lines[deck].pts].reverse()], w0, w1 });
+  }
+  const tilesLine = idx('Bovenkant pannen');
+  // Without a tile layout: the tile layer as one sheet.
+  if (!tiled && tilesLine > 0) frame.members.push({ kind: 'tiles', poly: [...lines[tilesLine - 1].pts, ...[...lines[tilesLine].pts].reverse()], w0, w1 });
   const tileTop = idx('Bovenkant pannen');
   if (tileTop > 0) frame.ghosts.push(...sheetAlong('tiles', lines[tileTop].pts, w0, w1));
   else if (tiles) frame.ghosts.push(...sheetAlong('tiles', lines[lines.length - 1].pts, w0, w1));
@@ -238,6 +266,34 @@ function afdakFrame(dak: DakResult, o: AfdakOutcome): Frame {
   ]);
   for (const x of r.xs) frame.members.push({ kind: 'rafter', poly: outline, w0: x - rw / 2, w1: x + rw / 2 });
 
+  // Joist hangers: back plate on the beam face, the seat, and a flange on each side.
+  const hg = back.hanger;
+  if (hg) {
+    const b1 = back.s1;
+    const e = b1 + hg.seat;
+    const zuB = r.undersideAt(b1);
+    const zuE = r.undersideAt(e);
+    const flange =
+      hg.kind === 'vlak'
+        ? rect(u(e), hg.bottom, u(b1), hg.bottom + hg.height)
+        : [{ x: u(b1), y: zuB }, { x: u(e), y: zuE }, { x: u(e), y: zuE + hg.height }, { x: u(b1), y: zuB + hg.height }];
+    const seat =
+      hg.kind === 'vlak'
+        ? rect(u(e), hg.bottom - STEEL, u(b1), hg.bottom)
+        : [{ x: u(b1), y: zuB - STEEL }, { x: u(e), y: zuE - STEEL }, { x: u(e), y: zuE }, { x: u(b1), y: zuB }];
+    const plate = rect(u(b1), hg.bottom - STEEL, u(b1) + STEEL, hg.bottom + hg.height);
+    for (const x of r.xs) {
+      const a = x - rw / 2;
+      const b = x + rw / 2;
+      frame.members.push(
+        { kind: 'hanger', poly: plate, w0: a - STEEL, w1: b + STEEL },
+        { kind: 'hanger', poly: seat, w0: a, w1: b },
+        { kind: 'hanger', poly: flange, w0: a - STEEL, w1: a },
+        { kind: 'hanger', poly: flange, w0: b, w1: b + STEEL },
+      );
+    }
+  }
+
   // The build-up is worked out in the roof's section (x from the front seat); here u = D − s.
   if (dak.buildup) {
     const sFront = front.s1 - front.length;
@@ -256,9 +312,11 @@ function afdakFrame(dak: DakResult, o: AfdakOutcome): Frame {
         { x: u(wall.s1), y: zu(wall.s1) },
       ];
       frame.ghosts.push(panelAt('wall', poly, (wall.x0 + wall.x1) / 2));
+      frame.members.push({ kind: 'wall', poly, w0: wall.x0, w1: wall.x1 });
     } else {
       const s = (wall.s0 + wall.s1) / 2;
       const zTop = (wall.side === 'voor' ? front.z : back.z) - bh;
+      frame.members.push({ kind: 'wall', poly: rect(u(wall.s1), 0, u(wall.s0), zTop), w0: wall.x0, w1: wall.x1 });
       frame.ghosts.push({
         kind: 'wall',
         pts: [
@@ -273,6 +331,7 @@ function afdakFrame(dak: DakResult, o: AfdakOutcome): Frame {
   if (plan.attached) {
     const lines = dak.buildup?.lines;
     const top = (lines ? Math.max(...lines[lines.length - 1].pts.map((p) => p.y)) : r.ends.back.top) + 0.3;
+    frame.members.push({ kind: 'building', poly: rect(D, 0, D + 2 * WALL, top), w0: -0.4, w1: W + 0.4 });
     frame.ghosts.push({
       kind: 'wall',
       pts: [
@@ -314,9 +373,12 @@ function roofFrame(dak: DakResult): Frame {
   // Gables and the long walls, see-through.
   const roof = dak.roof;
   frame.ghosts.push(panelAt('wall', roof.outline, g0), panelAt('wall', roof.outline, g0 + L));
+  frame.members.push({ kind: 'building', poly: roof.outline, w0: g0, w1: g0 + WALL }, { kind: 'building', poly: roof.outline, w0: g0 + L - WALL, w1: g0 + L });
   if (roof.fromFloor) {
     for (const x of [0, roof.span]) {
       const zTop = heightOn(bu.lines[0].pts, x);
+      const inner = x === 0 ? WALL : roof.span - WALL;
+      frame.members.push({ kind: 'building', poly: rect(Math.min(x, inner), 0, Math.max(x, inner), zTop), w0: g0 + WALL, w1: g0 + L - WALL });
       frame.ghosts.push({
         kind: 'wall',
         pts: [
@@ -388,14 +450,14 @@ function clipHalf(poly: Point[], axis: 'x' | 'y', value: number, keepAbove: bool
 }
 
 /** Cut a prism into blocks and give each block its outward faces. */
-export function piecesOf(prism: Prism): Piece[] {
+export function piecesOf(prism: Prism, block = BLOCK): Piece[] {
   let poly = prism.poly;
   if (poly.length < 3) return [];
   if (area(poly) < 0) poly = [...poly].reverse();
   const us = poly.map((p) => p.x);
   const vs = poly.map((p) => p.y);
   const grid = (lo: number, hi: number) => {
-    const n = Math.max(1, Math.ceil((hi - lo) / BLOCK - 1e-9));
+    const n = Math.max(1, Math.ceil((hi - lo) / block - 1e-9));
     return Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n);
   };
   const gu = grid(Math.min(...us), Math.max(...us));

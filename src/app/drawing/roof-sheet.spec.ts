@@ -42,9 +42,9 @@ describe('roof truss work drawing', () => {
     const svg = roofSheet(dak(base), { project: 'Schuur', subject: 'Kap', date: new Date(2026, 9, 17) });
     expect(svg).toContain('width="297mm"');
     expect(svg).toMatch(/1:(50|100)/);
-    for (const s of ['Dak', 'Sparren (bovenkant spar)', 'Zaagsneden', 'Hoogtes (opbouw 305)', 'Latverdeling (langs de spar)', 'Materiaal', 'Schuur · Kap']) expect(svg).toContain(s);
+    for (const s of ['Dak', 'Sporen (bovenkant spoor)', 'Zaagsneden', 'Hoogtes (opbouw 305)', 'Latverdeling (langs de spoor)', 'Materiaal', 'Schuur · Kap']) expect(svg).toContain(s);
     // Plumb cut at 45°: 45° on the rafter, 175 mm rafter → 247 mm long.
-    expect(svg).toContain('45,0° op de spar');
+    expect(svg).toContain('45,0° op de spoor');
     expect(svg).toContain('>247<');
     expect(svg).not.toContain('NaN');
   });

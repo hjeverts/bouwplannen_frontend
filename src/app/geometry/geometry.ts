@@ -507,10 +507,10 @@ function leanTo(input: RoofInput, span: number, hL: number, hR: number, oL: numb
   const values = [input.rise, input.pitch, input.rafter].filter(has).length;
   let diff: number;
   if (fromFloor && Math.abs(hR - hL) > 1e-9) {
-    if (values > 0) throw new GeometryError('De twee muurhoogtes bepalen de helling al; laat hoogteverschil, helling en sparlengte leeg.');
+    if (values > 0) throw new GeometryError('De twee muurhoogtes bepalen de helling al; laat hoogteverschil, helling en spoorlengte leeg.');
     diff = Math.abs(hR - hL);
   } else {
-    if (values !== 1) throw new GeometryError('Vul één van deze in: hoogteverschil, dakhelling of sparlengte.');
+    if (values !== 1) throw new GeometryError('Vul één van deze in: hoogteverschil, dakhelling of spoorlengte.');
     if (has(input.rise)) {
       requirePositive(input.rise, 'Het hoogteverschil');
       diff = input.rise;
@@ -518,8 +518,8 @@ function leanTo(input: RoofInput, span: number, hL: number, hR: number, oL: numb
       requirePitch(input.pitch, 'De dakhelling');
       diff = span * Math.tan(toRad(input.pitch));
     } else {
-      requirePositive(input.rafter!, 'De sparlengte');
-      if (input.rafter! <= span) throw new GeometryError(`De sparlengte moet langer zijn dan de overspanning (${fmt(span)}).`);
+      requirePositive(input.rafter!, 'De spoorlengte');
+      if (input.rafter! <= span) throw new GeometryError(`De spoorlengte moet langer zijn dan de overspanning (${fmt(span)}).`);
       diff = Math.sqrt(input.rafter! ** 2 - span ** 2);
     }
   }
@@ -543,8 +543,8 @@ function gable(input: RoofInput, span: number, hL: number, hR: number, oL: numbe
   let xr = has(input.ridgeOffset) ? input.ridgeOffset : null;
   if (has(pL)) requirePitch(pL, 'De dakhelling links');
   if (has(pR)) requirePitch(pR, 'De dakhelling rechts');
-  if (has(rL)) requirePositive(rL, 'De spar links');
-  if (has(rR)) requirePositive(rR, 'De spar rechts');
+  if (has(rL)) requirePositive(rL, 'De spoor links');
+  if (has(rR)) requirePositive(rR, 'De spoor rechts');
   if (has(H)) requirePositive(H, 'De nokhoogte');
 
   // Each value gives the ridge height as a function of the ridge position x.
@@ -563,7 +563,7 @@ function gable(input: RoofInput, span: number, hL: number, hR: number, oL: numbe
   } else if (count !== 2) {
     throw new GeometryError(
       count < 2
-        ? 'Vul twee waarden in: dakhelling links of rechts, spar links of rechts, nokhoogte of afstand tot de nok.'
+        ? 'Vul twee waarden in: dakhelling links of rechts, spoor links of rechts, nokhoogte of afstand tot de nok.'
         : 'Vul precies twee waarden in; laat de andere leeg.',
     );
   }
@@ -572,7 +572,7 @@ function gable(input: RoofInput, span: number, hL: number, hR: number, oL: numbe
   if (xr !== null) {
     if (xr <= 0 || xr >= span) throw new GeometryError('De nok moet tussen de twee muren liggen.');
     ridgeHeight = heightOf[0](xr);
-    if (!Number.isFinite(ridgeHeight)) throw new GeometryError('De spar is te kort om de nok op die plek te halen.');
+    if (!Number.isFinite(ridgeHeight)) throw new GeometryError('De spoor is te kort om de nok op die plek te halen.');
   } else {
     // Two height functions: find the x where they meet.
     const [f, g] = heightOf;

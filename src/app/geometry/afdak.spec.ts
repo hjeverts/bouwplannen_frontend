@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { afdakPlanSheet, afdakPlanView, afdakRafterSheet, afdakRafterView } from '../drawing/afdak-views';
-import { computeAfdakItem } from '../model/compute-afdak';
-import { AfdakItem, createItem, emptyAfdakRoof } from '../model/models';
+import { computeAfdakEntry } from '../model/compute-afdak';
+import { afdakLayers, computeDak } from '../model/compute';
+import { AfdakEntry, createItem, DakItem, emptyAfdak, emptyAfdakRoof, emptyBuildup, emptyTiles, migrateProject } from '../model/models';
 import { AfdakInput, computeAfdak, computeRafters } from './afdak';
 
 /** 5 m × 1,5 m against a building, three 150 × 150 posts at the front, no overhang. */
@@ -140,13 +141,13 @@ describe('afdak rafters fixed against the wall beam', () => {
   });
 
   it('draws and prints the rafter against the beam', () => {
-    const item: AfdakItem = {
-      ...(createItem('afdak') as AfdakItem),
+    const item: AfdakEntry = {
+      ...emptyAfdak(),
       width: '5',
       depth: '1,5',
       roof: { ...emptyAfdakRoof(), pitch: '18', frontHeight: '2,2', beamHeight: '0,15', backWidth: '0,15', rafterWidth: '0,05', rafterHeight: '0,15', backFix: 'tegen', backOffset: '-0,01' },
     };
-    const r = computeAfdakItem(item);
+    const r = computeAfdakEntry(item);
     if (r.status !== 'ok') throw new Error(r.message);
     expect(r.value.roofMessage).toBeNull();
     expect(r.value.backOffset).toBeCloseTo(-0.01, 9);
@@ -157,7 +158,7 @@ describe('afdak rafters fixed against the wall beam', () => {
     expect(sheet).toContain('achter: tegen');
     expect(sheet).not.toContain('NaN');
     // Free-standing: always on top of the back beam.
-    const free = computeAfdakItem({ ...item, attached: false, roof: { ...item.roof!, backWidth: '' } });
+    const free = computeAfdakEntry({ ...item, attached: false, roof: { ...item.roof!, backWidth: '' } });
     if (free.status !== 'ok') throw new Error(free.message);
     expect(free.value.rafters!.seats[0].against).toBeFalsy();
   });
@@ -191,8 +192,8 @@ describe('afdak beams on their posts', () => {
 });
 
 describe('afdak item and drawings', () => {
-  const item: AfdakItem = {
-    ...(createItem('afdak') as AfdakItem),
+  const item: AfdakEntry = {
+    ...emptyAfdak(),
     width: '5',
     depth: '1,5',
     footing: '0,4',
@@ -202,17 +203,17 @@ describe('afdak item and drawings', () => {
   };
 
   it('computes from what is typed, with sensible defaults', () => {
-    const r = computeAfdakItem(item);
+    const r = computeAfdakEntry(item);
     if (r.status !== 'ok') throw new Error(r.message);
     expect(r.value.plan.posts).toHaveLength(3);
     expect(r.value.rafters!.seats[1].length).toBeCloseTo(0.15, 9); // beam width = post depth
-    expect(computeAfdakItem({ ...item, width: '' }).status).toBe('incomplete');
-    const half = computeAfdakItem({ ...item, roof: { ...item.roof!, frontHeight: '' } });
+    expect(computeAfdakEntry({ ...item, width: '' }).status).toBe('incomplete');
+    const half = computeAfdakEntry({ ...item, roof: { ...item.roof!, frontHeight: '' } });
     expect(half.status === 'ok' && /twee van deze drie/.test(half.value.roofMessage ?? '')).toBe(true);
   });
 
   it('draws the set-out plan and the rafter, and puts both on A4', () => {
-    const r = computeAfdakItem(item);
+    const r = computeAfdakEntry(item);
     if (r.status !== 'ok') throw new Error(r.message);
     const texts = afdakPlanView(r.value).prims.flatMap((p) => (p.t === 'dim' || p.t === 'text' ? [p.text] : []));
     for (const t of ['2425', '5000', '1425', '1500', '800', 'P1', 'P3', 'M1', 'M2']) expect(texts).toContain(t);
@@ -229,5 +230,74 @@ describe('afdak item and drawings', () => {
     expect(plan).toContain('Uitzetten');
     expect(saw).toContain('Kepen');
     expect(saw).toContain('Over boven de keep');
+  });
+});
+
+describe('afdak as part of a lean-to roof', () => {
+  const afdak: AfdakEntry = {
+    ...emptyAfdak(),
+    width: '5',
+    depth: '1,5',
+    roof: { ...emptyAfdakRoof(), pitch: '18', frontHeight: '2,2', beamHeight: '0,15', backWidth: '0,15', rafterWidth: '0,05', rafterHeight: '0,15' },
+  };
+  const dak = (extra: Partial<DakItem> = {}): DakItem => ({ ...(createItem('dak') as DakItem), roofType: 'lessenaarsdak', afdakOn: true, afdak, ...extra });
+
+  it('takes the section from the posts, beams and rafters', () => {
+    const r = computeDak(dak());
+    if (r.status !== 'ok') throw new Error(r.message);
+    const { roof, afdak: a } = r.value;
+    expect(roof.type).toBe('lessenaarsdak');
+    expect(roof.left.pitch).toBeCloseTo(18, 6);
+    // Underside of the rafters: from the front seat start (1350 from the wall) to the back seat start (0).
+    expect(roof.span).toBeCloseTo(1.35, 9);
+    expect(roof.plateLeft).toBeCloseTo(2.2, 9);
+    expect(roof.plateRight).toBeCloseTo(a!.rafters!.backHeight, 9);
+    expect([roof.overhangLeft, roof.overhangRight]).toEqual([expect.closeTo(0.15, 9), expect.closeTo(0, 9)]);
+    // The rafter, ends included, is the afdak's rafter.
+    expect(roof.left.rafterWithOverhang).toBeCloseTo(a!.rafters!.length, 9);
+    expect(r.value.purlinLength).toBeCloseTo(5, 9);
+  });
+
+  it('builds the roof on the rafters and lays the tiles along it', () => {
+    const r = computeDak(
+      dak({
+        buildup: { ...emptyBuildup(), deck: '18 mm', counter: '0', batten: '22 mm', tile: '68 mm' },
+        tiles: { ...emptyTiles(), gauge: '308 mm', cover: '204 mm', eavesGap: '245 mm' },
+      }),
+    );
+    if (r.status !== 'ok') throw new Error(r.message);
+    const bu = r.value.buildup!;
+    // The rafter (150) is the first layer, whatever the build-up said about it.
+    expect(bu.lines.map((l) => l.name)).toEqual(['Onderkant constructie', 'Bovenkant spoor / gording', 'Bovenkant dakbeschot', 'Bovenkant panlat', 'Bovenkant pannen']);
+    expect(bu.total).toBeCloseTo(0.15 + 0.018 + 0.022 + 0.068, 9);
+    expect(r.value.tiles!.counter).toBe(false);
+    expect(r.value.tiles!.planes).toHaveLength(1);
+    expect(r.value.tiles!.normalPerRow).toBe(25); // 5 m / 204 mm = 24,5
+    // The layers in the afdak's own section: tiles on top, front edge at the depth.
+    const layers = afdakLayers(r.value);
+    expect(layers.map((l) => l.name)).toEqual(['Bovenkant dakbeschot', 'Bovenkant panlat', 'Bovenkant pannen']);
+    const top = layers[2].pts;
+    expect(Math.max(...top.map((p) => p.x))).toBeCloseTo(1.5, 9);
+    const sheet = afdakRafterSheet(r.value.afdak!, { project: 'P', subject: 'A' }, layers)!;
+    expect(sheet).toContain('Bovenkant pannen voor · achter');
+  });
+
+  it('says what is missing while the afdak has no roof yet', () => {
+    const r = computeDak(dak({ afdak: { ...afdak, roof: undefined } }));
+    expect(r.status).toBe('incomplete');
+    // Switched off: the lean-to is computed from its own fields again.
+    expect(computeDak(dak({ afdakOn: false, span: '3', pitch: '15' })).status).toBe('ok');
+  });
+
+  it('turns old afdak items into lean-to roofs', () => {
+    const old = { id: 'a1', kind: 'afdak', name: 'Afdak schuur', notes: 'oud', updated: '2026-10-17', width: '5', depth: '1,5', attached: true, postsFront: '3', roof: afdak.roof };
+    const p = migrateProject({ id: 'p', name: 'P', created: '', updated: '', items: [old, { ...(createItem('maten')), id: 'm' }] });
+    const d = p.items[0] as DakItem;
+    expect(d.kind).toBe('dak');
+    expect([d.id, d.name, d.notes, d.roofType, d.afdakOn]).toEqual(['a1', 'Afdak schuur', 'oud', 'lessenaarsdak', true]);
+    expect(d.afdak!.width).toBe('5');
+    expect(d.afdak!.postWidth).toBe('0,150'); // filled in from the defaults
+    expect(p.items[1].kind).toBe('maten');
+    expect(computeDak(d).status).toBe('ok');
   });
 });

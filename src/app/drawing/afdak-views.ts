@@ -86,8 +86,11 @@ export function afdakPlanView(o: AfdakOutcome): View {
 }
 
 /** Side section (back left, front right) with the beams, posts and rafter, and the rafter laid flat. */
-export function afdakRafterView(o: AfdakOutcome): View | null {
-  const parts = afdakRafterParts(o);
+/** Layers on the rafters (decking, battens, tiles) in the section's coordinates: x = s, y = height. */
+export type AfdakLayer = { name: string; pts: Point[] };
+
+export function afdakRafterView(o: AfdakOutcome, layers: AfdakLayer[] = []): View | null {
+  const parts = afdakRafterParts(o, layers);
   if (!parts) return null;
   // On screen: both in one drawing, the rafter under the section.
   const shift = Math.min(0, ...parts.section.prims.flatMap((p) => (p.t === 'poly' ? p.rings.flat().map((q) => q.y) : []))) - 1.2;
@@ -112,7 +115,7 @@ function movePrim(p: Prim, dy: number): Prim {
 }
 
 /** The section and the rafter detail as separate views (printed at their own scales). */
-export function afdakRafterParts(o: AfdakOutcome): { section: View; detail: View; detailTop: number } | null {
+export function afdakRafterParts(o: AfdakOutcome, layers: AfdakLayer[] = []): { section: View; detail: View; detailTop: number } | null {
   const { plan, rafters: r } = o;
   if (!r) return null;
   const prims: Prim[] = [];
@@ -155,6 +158,13 @@ export function afdakRafterParts(o: AfdakOutcome): { section: View; detail: View
   const backBeam = plan.attached ? (o.backBeamHeight ?? Math.min(bh, 0.15)) : bh;
   prims.push({ t: 'poly', rings: [rect(back.s0, back.z - backBeam, back.s1, back.z)], cls: 'f', fill: 'rgb(200,178,138)' });
   prims.push({ t: 'poly', rings: [outline], cls: 'f', fill: WOOD });
+  // The roof build-up on the rafters: decking, counter battens, battens, tiles.
+  for (const l of layers) prims.push({ t: 'line', pts: l.pts, cls: l.name === 'Bovenkant pannen' ? 'sym' : 'sym-thin' });
+  const tilesTop = layers.find((l) => l.name === 'Bovenkant pannen');
+  if (tilesTop) {
+    const lo = tilesTop.pts.reduce((m, p) => (p.x > m.x ? p : m), tilesTop.pts[0]);
+    prims.push({ t: 'dim', a: { x: D + 0.5, y: 0 }, b: { x: D + 0.5, y: lo.y }, off: -6, text: mm(lo.y) });
+  }
   // Heights: front beam, back support, and the posts.
   const xl = -0.4;
   prims.push({ t: 'dim', a: { x: D + 0.2, y: 0 }, b: { x: D + 0.2, y: front.z }, off: -6, text: mm(front.z) });
@@ -254,8 +264,8 @@ export function afdakPlanSheet(o: AfdakOutcome, meta: SheetMeta): string {
 }
 
 /** A4: the rafter section and sawing drawing, with the cuts and heights in a table. */
-export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta): string | null {
-  const parts = afdakRafterParts(o);
+export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta, layers: AfdakLayer[] = []): string | null {
+  const parts = afdakRafterParts(o, layers);
   const r = o.rafters;
   if (!parts || !r) return null;
   return sheetWithViews([parts.section, parts.detail], [3, 2], meta, 86, (x, y, w) => {
@@ -301,6 +311,11 @@ export function afdakRafterSheet(o: AfdakOutcome, meta: SheetMeta): string | nul
     ];
     if (r.backPost !== null) hrows.push(['Staanders achter', mm(r.backPost)]);
     hrows.push(['Spoor bovenkant voor · achter', `${mm(r.ends.front.top)} · ${mm(r.ends.back.top)}`]);
+    const tilesTop = layers.find((l) => l.name === 'Bovenkant pannen');
+    if (tilesTop) {
+      const byS = [...tilesTop.pts].sort((p, q) => q.x - p.x);
+      hrows.push(['Bovenkant pannen voor · achter', `${mm(byS[0].y)} · ${mm(byS[byS.length - 1].y)}`]);
+    }
     table('Hoogtes vanaf de vloer', hrows, [30]);
     const fix = back.against
       ? ` Aan de muurkant eindigt de spoor tegen de ligger, bovenkant ${o.backOffset ? `${mm(o.backOffset)} boven` : 'gelijk met'} de ligger: schuin schroeven of een balkdrager.`

@@ -1,7 +1,7 @@
 import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import { LengthUnit, lengthUnit } from '../geometry/units';
 import { convertItem } from './convert-units';
-import { createItem, Item, ItemKind, newId, Project } from './models';
+import { createItem, Item, ItemKind, migrateProject, newId, Project } from './models';
 import { PROJECT_STORAGE } from './storage';
 
 const UNIT_KEY = 'bouwplannen.unit.v1';
@@ -16,7 +16,7 @@ export class ProjectStore {
 
   private readonly storage = inject(PROJECT_STORAGE);
 
-  readonly projects = signal<Project[]>(this.storage.load());
+  readonly projects = signal<Project[]>(this.storage.load().map(migrateProject));
   readonly currentProjectId = signal<string | null>(null);
   readonly currentItemId = signal<string | null>(null);
   readonly storageAvailable = this.storage.available;

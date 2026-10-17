@@ -1,7 +1,7 @@
 import { AfdakResult, computeAfdak, computeRafters, Rafter } from '../geometry/afdak';
 import { parseAngle, parseLength } from '../geometry/units';
-import { AfdakItem } from './models';
-import { Outcome } from './compute';
+import { AfdakEntry } from './models';
+import type { Outcome } from './compute';
 
 export interface AfdakOutcome {
   plan: AfdakResult;
@@ -41,7 +41,7 @@ function count(text: string, label: string): number {
   return v;
 }
 
-export function computeAfdakItem(item: AfdakItem): Outcome<AfdakOutcome> {
+export function computeAfdakEntry(item: AfdakEntry): Outcome<AfdakOutcome> {
   let plan: AfdakResult;
   try {
     const width = len(item.width, 'Breedte');

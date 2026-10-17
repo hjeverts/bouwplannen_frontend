@@ -2,7 +2,7 @@ import { computed, DestroyRef, inject, Injectable, InjectionToken, signal } from
 import { ApiClient, ApiResponse, OfflineError } from '../api/api-client';
 import { AuthService, Me } from '../api/auth.service';
 import { SYNC_KV } from '../api/kv';
-import { Project } from '../model/models';
+import { migrateItems, Project } from '../model/models';
 import { ProjectChange, ProjectStore } from '../model/project-store';
 
 export { SYNC_KV } from '../api/kv';
@@ -335,7 +335,7 @@ function ifMatch(version: number | null): Record<string, string> {
 }
 
 function toProject(r: RemoteProject): Project {
-  const p: Project = { id: r.id, name: r.name, created: r.created, updated: r.updated, groupId: r.groupId, items: r.items };
+  const p: Project = { id: r.id, name: r.name, created: r.created, updated: r.updated, groupId: r.groupId, items: migrateItems(r.items as unknown[]) };
   // Older servers do not send settings; the server sends null when there are none.
   if (r.settings) p.settings = r.settings;
   return p;

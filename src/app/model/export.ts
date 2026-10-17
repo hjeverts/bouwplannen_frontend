@@ -2,8 +2,7 @@ import { Point, RoofSide } from '../geometry/geometry';
 import { formatAngle, formatArea, formatLength, formatMm, formatPercent, formatVolume } from '../geometry/units';
 import { computeDak, computeDriehoek, computeHoek, computeMaten, computeVorm } from './compute';
 import { computePlattegrond } from './compute-plan';
-import { computeAfdakItem } from './compute-afdak';
-import { Item, KIND_LABELS, Project } from './models';
+import { Item, KIND_LABELS, migrateProject, Project } from './models';
 
 export interface ExportFile {
   app: 'bouwplannen';
@@ -36,7 +35,7 @@ export function parseImport(text: string): Project[] {
       !!p && typeof p === 'object' && typeof (p as Project).id === 'string' && typeof (p as Project).name === 'string' && Array.isArray((p as Project).items),
   );
   if (valid.length === 0) throw new Error('Geen projecten gevonden in dit bestand.');
-  return valid;
+  return valid.map(migrateProject);
 }
 
 /** One line per result value, for a spreadsheet. Uses ; as separator and a decimal comma (Dutch Excel). */
@@ -98,8 +97,8 @@ export function summarize(item: Item, items: Item[] = []): [string, string][] {
       const { roof, purlinLength, surfaceLeft, surfaceRight } = r.value;
       const slope = (label: string, sd: RoofSide): [string, string][] => [
         [`Helling ${label}`, `${formatAngle(sd.pitch, 2)} (${formatPercent(sd.pitchPercent)})`],
-        [`Spar ${label}`, formatLength(sd.rafter)],
-        [`Spar ${label} incl. overstek`, formatLength(sd.rafterWithOverhang)],
+        [`Spoor ${label}`, formatLength(sd.rafter)],
+        [`Spoor ${label} incl. overstek`, formatLength(sd.rafterWithOverhang)],
       ];
       const out: [string, string][] = [['Nokhoogte', formatLength(roof.rise)]];
       if (roof.upper && roof.knee) {
@@ -130,30 +129,28 @@ export function summarize(item: Item, items: Item[] = []): [string, string][] {
         else if (t.counterBattens !== null) out.push(['Tengels', `${t.counterBattens} stuks, ${formatLength(t.counterLength, 1)}`]);
       }
       if (r.value.tilesMessage) out.push(['Pannen', r.value.tilesMessage]);
+      // An afdak: posts, set-out measurements and the rafters with their notches.
+      if (r.value.afdak) {
+        const { plan, rafters } = r.value.afdak;
+        out.push(
+          ['Afdak', `${formatLength(plan.width)} × ${formatLength(plan.depth)}`],
+          ['Staanders', String(plan.posts.length)],
+        );
+        if (plan.spacingFront !== null) out.push(['Staanders h.o.h.', formatLength(plan.spacingFront)]);
+        for (const p of plan.posts) out.push([`${p.name} (x, ${plan.attached ? 'uit muur' : 'van achter'})`, `${formatLength(p.x)}, ${formatLength(p.s)}`]);
+        for (const d of plan.diagonals) out.push([`Diagonaal ${d.from.label}–${d.to.label}`, formatLength(d.length)]);
+        if (rafters) {
+          out.push(['Dakhelling', formatAngle(rafters.pitch, 1)], ['Sporen', `${rafters.xs.length} × ${formatLength(rafters.length)}`]);
+          out.push(['Bovenkant voorligger', formatLength(rafters.frontHeight)], ['Bovenkant achter', formatLength(rafters.backHeight)]);
+          for (const st of rafters.seats) out.push([`Keep ${st.name.toLowerCase()}`, `zit ${formatMm(st.length)}, ${formatMm(st.depth)} diep`]);
+        }
+      }
       const bu = r.value.buildup;
       if (bu) {
         out.push(['Dakopbouw haaks op het dak', formatMm(bu.total)]);
         for (const pt of bu.points) {
           bu.lines.forEach((l, i) => out.push([`${pt.label}: ${l.name.toLowerCase()}`, formatLength(pt.z[i])]));
         }
-      }
-      return out;
-    }
-    case 'afdak': {
-      const r = computeAfdakItem(item);
-      if (r.status !== 'ok') return [['Status', r.message]];
-      const { plan, rafters } = r.value;
-      const out: [string, string][] = [
-        ['Afdak', `${formatLength(plan.width)} × ${formatLength(plan.depth)}`],
-        ['Staanders', String(plan.posts.length)],
-      ];
-      if (plan.spacingFront !== null) out.push(['Staanders h.o.h.', formatLength(plan.spacingFront)]);
-      for (const p of plan.posts) out.push([`${p.name} (x, ${plan.attached ? 'uit muur' : 'van achter'})`, `${formatLength(p.x)}, ${formatLength(p.s)}`]);
-      for (const d of plan.diagonals) out.push([`Diagonaal ${d.from.label}–${d.to.label}`, formatLength(d.length)]);
-      if (rafters) {
-        out.push(['Dakhelling', formatAngle(rafters.pitch, 1)], ['Sporen', `${rafters.xs.length} × ${formatLength(rafters.length)}`]);
-        out.push(['Bovenkant voorligger', formatLength(rafters.frontHeight)], ['Bovenkant achter', formatLength(rafters.backHeight)]);
-        for (const st of rafters.seats) out.push([`Keep ${st.name.toLowerCase()}`, `zit ${formatMm(st.length)}, ${formatMm(st.depth)} diep`]);
       }
       return out;
     }

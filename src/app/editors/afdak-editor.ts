@@ -3,8 +3,8 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { afdakPlanSheet, afdakPlanView, afdakRafterSheet, afdakRafterView } from '../drawing/afdak-views';
 import { heightFor, renderFitted, View } from '../drawing/vector';
 import { formatAngle, formatLength, formatMm, lengthInput } from '../geometry/units';
-import { computeAfdakItem } from '../model/compute-afdak';
-import { AfdakItem, AfdakRoofEntry, AfdakSide, emptyAfdakRoof } from '../model/models';
+import { computeAfdakEntry } from '../model/compute-afdak';
+import { AfdakEntry, AfdakRoofEntry, AfdakSide, emptyAfdakRoof } from '../model/models';
 import { ProjectStore } from '../model/project-store';
 import { MeasureField } from '../ui/measure-field';
 import { PrintService } from '../ui/print';
@@ -13,7 +13,7 @@ import { ResultRow, Results } from '../ui/results';
 type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'postsFront' | 'postsBack' | 'overhangSide' | 'overhangFront' | 'overhangBack' | 'footing' | 'wallThickness';
 
 @Component({
-  selector: 'app-afdak-editor',
+  selector: 'app-afdak-panel',
   imports: [MeasureField, Results],
   template: `
     <p class="lead">
@@ -144,15 +144,19 @@ type Field = 'width' | 'depth' | 'wallOffset' | 'postWidth' | 'postDepth' | 'pos
     }
   `,
 })
-export class AfdakEditor {
-  readonly item = input.required<AfdakItem>();
-  readonly changed = output<AfdakItem>();
+export class AfdakPanel {
+  readonly item = input.required<AfdakEntry>();
+  /** Name of the roof, for the printed sheets. */
+  readonly name = input('Afdak');
+  /** Layers on the rafters from the roof build-up (s along the depth, z height), to draw on the section. */
+  readonly layers = input<{ name: string; pts: { x: number; y: number }[] }[]>([]);
+  readonly changed = output<AfdakEntry>();
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly printer = inject(PrintService);
   private readonly store = inject(ProjectStore);
 
-  protected readonly outcome = computed(() => computeAfdakItem(this.item()));
+  protected readonly outcome = computed(() => computeAfdakEntry(this.item()));
   private readonly value = computed(() => {
     const o = this.outcome();
     return o.status === 'ok' ? o.value : null;
@@ -183,7 +187,7 @@ export class AfdakEditor {
   });
   protected readonly rafterSvg = computed(() => {
     const v = this.value();
-    return v ? this.svg(afdakRafterView(v)) : null;
+    return v ? this.svg(afdakRafterView(v, this.layers())) : null;
   });
 
   protected readonly rows = computed<ResultRow[]>(() => {
@@ -244,7 +248,7 @@ export class AfdakEditor {
   }
 
   private meta(subject: string) {
-    return { project: this.store.currentProject()?.name ?? '', subject: `${this.item().name} · ${subject}` };
+    return { project: this.store.currentProject()?.name ?? '', subject: `${this.name()} · ${subject}` };
   }
 
   protected printPlan(): void {
@@ -254,7 +258,7 @@ export class AfdakEditor {
 
   protected printRafter(): void {
     const v = this.value();
-    const svg = v && afdakRafterSheet(v, this.meta('spoor'));
+    const svg = v && afdakRafterSheet(v, this.meta('spoor'), this.layers());
     if (svg) this.printer.print(svg);
   }
 }

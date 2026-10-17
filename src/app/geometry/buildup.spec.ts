@@ -3,7 +3,7 @@ import { computeBuildup, heightOn, offsetLine, roofLine } from './buildup';
 import { mansardSection, roofSection } from './geometry';
 
 const S2 = Math.SQRT2;
-/** 175 spar, 18 beschot, 22 tengel, 22 panlat, 68 pan: 305 mm. */
+/** 175 spoor, 18 beschot, 22 tengel, 22 panlat, 68 pan: 305 mm. */
 const layers = { rafter: 0.175, deck: 0.018, counter: 0.022, batten: 0.022, tile: 0.068 };
 
 describe('roof build-up', () => {
@@ -30,7 +30,7 @@ describe('roof build-up', () => {
     expect(bu.plumb.map((p) => p.thickness)).toEqual([expect.closeTo(0.305 * S2, 9), expect.closeTo(0.305 * S2, 9)]);
     expect(bu.lines.map((l) => l.name)).toEqual([
       'Onderkant constructie',
-      'Bovenkant spar / gording',
+      'Bovenkant spoor / gording',
       'Bovenkant dakbeschot',
       'Bovenkant tengel',
       'Bovenkant panlat',

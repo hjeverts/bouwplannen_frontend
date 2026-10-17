@@ -3,7 +3,7 @@
  * and nothing is lost to rounding. Results are always recomputed from these values.
  */
 
-export type ItemKind = 'hoek' | 'driehoek' | 'vorm' | 'dak' | 'maten' | 'plattegrond' | 'afdak';
+export type ItemKind = 'hoek' | 'driehoek' | 'vorm' | 'dak' | 'maten' | 'plattegrond';
 
 interface BaseItem {
   id: string;
@@ -146,6 +146,9 @@ export interface DakItem extends BaseItem {
   tiles?: TileEntry;
   /** Roof build-up: thicknesses of the layers, and whether the roof as entered is their top or underside. */
   buildup?: BuildupEntry;
+  /** Lessenaarsdak as an afdak on posts: the afdak then gives the section (span, pitch, heights, overhangs). */
+  afdakOn?: boolean;
+  afdak?: AfdakEntry;
   /** Length of the roof along the ridge, for roof surface. */
   length: string;
 }
@@ -299,12 +302,11 @@ export interface PlattegrondItem extends BaseItem {
 export type AfdakSide = 'links' | 'rechts' | 'voor' | 'achter';
 
 /**
- * A lean-to roof on posts (afdak, overkapping, carport): free-standing or against a building at
- * the back. Seen from above: width left to right along the building, depth from the building
- * (or the back) to the front.
+ * A lean-to roof on posts (afdak, overkapping, carport), part of a Dak & spant item: free-standing
+ * or against a building at the back. Seen from above: width left to right along the building,
+ * depth from the building (or the back) to the front.
  */
-export interface AfdakItem extends BaseItem {
-  kind: 'afdak';
+export interface AfdakEntry {
   width: string;
   depth: string;
   /** Against a building at the back: no posts there, set out from the wall. */
@@ -326,7 +328,7 @@ export interface AfdakItem extends BaseItem {
   /** Closed sides, on the post lines. */
   walls: AfdakSide[];
   wallThickness: string;
-  /** Roof: rafters on the beams (optional). */
+  /** Roof: rafters (sporen) on the beams (optional). */
   roof?: AfdakRoofEntry;
 }
 
@@ -360,7 +362,45 @@ export function emptyAfdakRoof(): AfdakRoofEntry {
   return { pitch: '', frontHeight: '', backHeight: '', beamWidth: '', beamHeight: '', backWidth: '', rafterWidth: '', rafterHeight: '', rafterSpacing: '', notch: '3' };
 }
 
-export type Item = HoekItem | DriehoekItem | VormItem | DakItem | MatenItem | PlattegrondItem | AfdakItem;
+export function emptyAfdak(): AfdakEntry {
+  return {
+    width: '',
+    depth: '',
+    attached: true,
+    wallOffset: '',
+    postWidth: '0,150',
+    postDepth: '',
+    postsFront: '3',
+    postsBack: '3',
+    overhangSide: '0',
+    overhangFront: '0',
+    overhangBack: '0',
+    footing: '',
+    walls: [],
+    wallThickness: '0,100',
+  };
+}
+
+export type Item = HoekItem | DriehoekItem | VormItem | DakItem | MatenItem | PlattegrondItem;
+
+/**
+ * Items as stored, brought up to date: an afdak used to be an item of its own ('afdak'); it is now
+ * a lean-to Dak & spant with the afdak switched on.
+ */
+export function migrateItems(items: unknown[]): Item[] {
+  return items.map((raw) => {
+    const i = raw as Record<string, unknown>;
+    if (i?.['kind'] !== 'afdak') return raw as Item;
+    const { id, name, notes, updated, kind: _kind, ...afdak } = i as unknown as BaseItem & AfdakEntry & { kind: string };
+    void _kind;
+    const dak = createItem('dak') as DakItem;
+    return { ...dak, id, name, notes: notes ?? '', updated, roofType: 'lessenaarsdak', afdakOn: true, afdak: { ...emptyAfdak(), ...afdak } };
+  });
+}
+
+export function migrateProject<T extends { items: unknown[] }>(p: T): T {
+  return p.items.some((i) => (i as { kind?: string })?.kind === 'afdak') ? { ...p, items: migrateItems(p.items) } : p;
+}
 
 export interface Project {
   id: string;
@@ -386,17 +426,15 @@ export const KIND_LABELS: Record<ItemKind, string> = {
   dak: 'Dak & spant',
   maten: 'Losse maten',
   plattegrond: 'Plattegrond',
-  afdak: 'Afdak',
 };
 
 export const KIND_HINTS: Record<ItemKind, string> = {
   hoek: 'Hoek bepalen met drie maten vanaf de hoek',
   driehoek: 'Driehoek uit drie bekende waarden',
   vorm: 'Ruimte, gevel of plaat uit zijden en diagonalen of hoeken',
-  dak: 'Dakhelling, sparlengte en gevelvlak',
+  dak: 'Dakhelling, spoorlengte en gevelvlak',
   maten: 'Lijst met gemeten maten en labels',
   plattegrond: 'Ruimtes samenvoegen tot een verdieping, met muren, buitenmaat, kap en aanzichten',
-  afdak: 'Afdak of overkapping op staanders: waar de palen en poeren komen, met diagonalen en wanden',
 };
 
 export function newId(): string {
@@ -452,25 +490,6 @@ export function createItem(kind: ItemKind, name?: string): Item {
       };
     case 'maten':
       return { ...base, kind, entries: [{ label: '', value: '' }] };
-    case 'afdak':
-      return {
-        ...base,
-        kind,
-        width: '',
-        depth: '',
-        attached: true,
-        wallOffset: '',
-        postWidth: '0,150',
-        postDepth: '',
-        postsFront: '3',
-        postsBack: '3',
-        overhangSide: '0',
-        overhangFront: '0',
-        overhangBack: '0',
-        footing: '',
-        walls: [],
-        wallThickness: '0,100',
-      };
     case 'plattegrond':
       return {
         ...base,

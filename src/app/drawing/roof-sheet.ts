@@ -23,8 +23,8 @@ const WOOD = 'rgb(226,204,160)';
 /** The line the rafters are measured on: the top of the rafters with a build-up, else the roof as entered. */
 function rafterLine(dak: DakResult): { pts: Point[]; name: string } {
   const bu = dak.buildup;
-  const top = bu?.lines.find((l) => l.name === 'Bovenkant spar / gording');
-  if (top) return { pts: top.pts, name: 'bovenkant spar' };
+  const top = bu?.lines.find((l) => l.name === 'Bovenkant spoor / gording');
+  if (top) return { pts: top.pts, name: 'bovenkant spoor' };
   return { pts: roofLine(dak.roof), name: 'dakmaat' };
 }
 
@@ -62,7 +62,7 @@ export function roofSectionView(dak: DakResult): View {
 
   // The rafters (between their underside and top) and the layers on them.
   if (bu) {
-    const top = bu.lines.find((l) => l.name === 'Bovenkant spar / gording') ?? bu.lines[0];
+    const top = bu.lines.find((l) => l.name === 'Bovenkant spoor / gording') ?? bu.lines[0];
     if (top !== bu.lines[0]) prims.push({ t: 'poly', rings: [[...bu.lines[0].pts, ...[...top.pts].reverse()]], cls: 'f', fill: WOOD });
     else prims.push({ t: 'line', pts: bu.lines[0].pts, cls: 'sym' });
     for (const l of bu.lines.slice(1)) if (l !== top) prims.push({ t: 'line', pts: l.pts, cls: l.name === 'Bovenkant pannen' ? 'sym' : 'sym-thin' });
@@ -143,7 +143,7 @@ export function roofSectionView(dak: DakResult): View {
     for (const [s0, s1, text] of chain) if (s1 - s0 > 0.001) prims.push({ t: 'dim', a: drop(at(s0)), b: drop(at(s1)), off: 5 * inward, text, ext: false });
     prims.push({ t: 'text', at: drop(at(L * 0.55)), text: 'panlatten', cls: 'label-sub', size: 2.1, dy: -9 * (u.y < 0 ? 1 : -1) });
   }
-  return { prims, title: `Doorsnede spant (${rl.name === 'bovenkant spar' ? 'sparlengtes op de bovenkant' : 'maten van het dak'})`, scalable: true };
+  return { prims, title: `Doorsnede spant (${rl.name === 'bovenkant spoor' ? 'spoorlengtes op de bovenkant' : 'maten van het dak'})`, scalable: true };
 }
 
 /** The A4 work drawing: section and tables. */
@@ -182,28 +182,28 @@ export function roofSheet(dak: DakResult, meta: SheetMeta): string {
     const rl = rafterLine(dak);
     const pts = withWalls(rl.pts, roof.span);
     // Per rafter: from the wall to the ridge, and from the end of the overhang to the ridge.
-    const spar: string[][] = [['', 'muur–nok', 'met overstek']];
+    const spoor: string[][] = [['', 'muur–nok', 'met overstek']];
     const on = (x: number): Point => ({ x, y: heightOn(pts, x) });
     const first = pts[0];
     const last = pts[pts.length - 1];
     if (roof.type === 'zadeldak') {
       const ridge = pts.reduce((best, p) => (p.y > best.y ? p : best), pts[0]);
-      spar.push(['Spar links', mm(len(on(0), ridge)), mm(len(first, ridge))]);
-      spar.push(['Spar rechts', mm(len(ridge, on(roof.span))), mm(len(ridge, last))]);
+      spoor.push(['Spoor links', mm(len(on(0), ridge)), mm(len(first, ridge))]);
+      spoor.push(['Spoor rechts', mm(len(ridge, on(roof.span))), mm(len(ridge, last))]);
     } else if (roof.type === 'lessenaarsdak') {
-      spar[0][1] = 'muur–muur';
-      spar.push(['Spar', mm(len(on(0), on(roof.span))), mm(len(first, last))]);
+      spoor[0][1] = 'muur–muur';
+      spoor.push(['Spoor', mm(len(on(0), on(roof.span))), mm(len(first, last))]);
     } else if (roof.knee) {
       // Mansard: the lower rafter from the wall to the knee, the upper one from the knee to the ridge.
-      spar[0][1] = 'muur–knik';
+      spoor[0][1] = 'muur–knik';
       const ridge = pts.reduce((best, p) => (p.y > best.y ? p : best), pts[0]);
       const kneeL = pts.filter((p) => p.x > 1e-6 && p.x < ridge.x - 1e-6).pop()!;
       const kneeR = pts.filter((p) => p.x > ridge.x + 1e-6 && p.x < roof.span - 1e-6)[0];
-      spar.push(['Onderdak links', mm(len(on(0), kneeL)), mm(len(first, kneeL))]);
-      spar.push(['Onderdak rechts', mm(len(kneeR, on(roof.span))), mm(len(kneeR, last))]);
-      spar.push(['Bovendak (knik–nok)', mm(len(kneeL, ridge)), '']);
+      spoor.push(['Onderdak links', mm(len(on(0), kneeL)), mm(len(first, kneeL))]);
+      spoor.push(['Onderdak rechts', mm(len(kneeR, on(roof.span))), mm(len(kneeR, last))]);
+      spoor.push(['Bovendak (knik–nok)', mm(len(kneeL, ridge)), '']);
     }
-    const rafterTop = bu?.lines.find((l) => l.name === 'Bovenkant spar / gording');
+    const rafterTop = bu?.lines.find((l) => l.name === 'Bovenkant spoor / gording');
     const rafterH = bu && rafterTop ? rafterTop.offset - bu.lines[0].offset : null;
     // Plumb cut (loodsnede) and the seat cut on the wall plate (vogelbek), as angles to the rafter.
     const cut: string[][] = [];
@@ -211,25 +211,25 @@ export function roofSheet(dak: DakResult, meta: SheetMeta): string {
     if (roof.type === 'mansardekap' && roof.upper) {
       const lo = roof.left.pitch;
       const up = roof.upper.pitch;
-      cut.push(['Onderdak: vogelbek', `${deg(lo)} op de spar`], ['Onderdak: snede bij de knik', `${deg(90 - lo)} op de spar`], ...plumbLength(lo));
-      cut.push(['Bovendak: loodsnede nok', `${deg(90 - up)} op de spar`], ...plumbLength(up));
+      cut.push(['Onderdak: vogelbek', `${deg(lo)} op de spoor`], ['Onderdak: snede bij de knik', `${deg(90 - lo)} op de spoor`], ...plumbLength(lo));
+      cut.push(['Bovendak: loodsnede nok', `${deg(90 - up)} op de spoor`], ...plumbLength(up));
     } else {
       const pitches = roof.type === 'zadeldak' && roof.right ? [roof.left.pitch, roof.right.pitch] : [roof.left.pitch];
       [...new Set(pitches.map((p) => Math.round(p * 10) / 10))].forEach((p, i, all) => {
         const name = all.length > 1 ? (i === 0 ? ' links' : ' rechts') : '';
-        cut.push([`Loodsnede${name} (${roof.type === 'lessenaarsdak' ? 'einden' : 'nok, eind'})`, `${deg(90 - p)} op de spar`]);
-        cut.push([`Vogelbek${name} (op muurplaat)`, `${deg(p)} op de spar`], ...plumbLength(p));
+        cut.push([`Loodsnede${name} (${roof.type === 'lessenaarsdak' ? 'einden' : 'nok, eind'})`, `${deg(90 - p)} op de spoor`]);
+        cut.push([`Vogelbek${name} (op muurplaat)`, `${deg(p)} op de spoor`], ...plumbLength(p));
       });
     }
-    table(`Sparren (${rl.name})`, spar.length > 1 ? spar : [], [18, 22]);
+    table(`Sporen (${rl.name})`, spoor.length > 1 ? spoor : [], [18, 22]);
     table('Zaagsneden', cut, [36]);
 
     // Heights per point.
     if (bu) {
       const iUnder = 0;
-      const iRafter = bu.lines.findIndex((l) => l.name === 'Bovenkant spar / gording');
+      const iRafter = bu.lines.findIndex((l) => l.name === 'Bovenkant spoor / gording');
       const iTop = bu.lines.length - 1;
-      const head = ['bovenkant →', 'onderk.', ...(iRafter > 0 ? ['spar'] : []), 'pan'];
+      const head = ['bovenkant →', 'onderk.', ...(iRafter > 0 ? ['spoor'] : []), 'pan'];
       const hrows = [head, ...bu.points.map((p) => [p.label, signed(p.z[iUnder]), ...(iRafter > 0 ? [signed(p.z[iRafter])] : []), signed(p.z[iTop])])];
       table(`Hoogtes (opbouw ${mm(bu.total)})`, hrows, [14, 14, 14]);
     }
@@ -243,7 +243,7 @@ export function roofSheet(dak: DakResult, meta: SheetMeta): string {
       lat.push(['Laatste latafstand', ...tiles.planes.map((p) => mm(p.eavesGap))]);
       lat.push(['Panlatten + gootlat', ...tiles.planes.map((p) => `${p.battens} + 1`)]);
       lat.push(['Rijen pannen', ...tiles.planes.map((p) => String(p.rows))]);
-      table('Latverdeling (langs de spar)', lat);
+      table('Latverdeling (langs de spoor)', lat);
       const mat: string[][] = [];
       if (tiles.tiles !== null) mat.push(['Pannen', `${count(tiles.tiles)}${tiles.normalPerRow !== null ? ` (${tiles.normalPerRow} per rij)` : ''}`]);
       if (tiles.vergeTiles) mat.push(['Gevelpannen', count(tiles.vergeTiles)]);

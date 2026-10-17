@@ -13,10 +13,11 @@ import {
   TraverseResult,
 } from '../geometry/geometry';
 import { analyzeRoom, OpeningInput, RoomResult } from '../geometry/room';
-import { BuildupResult, computeBuildup } from '../geometry/buildup';
+import { BuildupResult, BuildupSpec, computeBuildup } from '../geometry/buildup';
+import { AfdakOutcome, computeAfdakEntry } from './compute-afdak';
 import { computeTiles, TileResult } from '../geometry/tiles';
 import { parseAngle, parseLength } from '../geometry/units';
-import { BuildupEntry, DakItem, TileEntry, DriehoekItem, HoekItem, MatenItem, VormItem } from './models';
+import { BuildupEntry, DakItem, emptyAfdak, TileEntry, DriehoekItem, HoekItem, MatenItem, VormItem } from './models';
 
 /**
  * Outcome of computing an item:
@@ -186,15 +187,69 @@ export interface DakResult {
   /** Heights of the roof layers; null when no layer is entered. */
   buildup: BuildupResult | null;
   buildupMessage: string | null;
+  /** A lean-to as an afdak on posts: its posts, beams and rafters (which gave the section). */
+  afdak: AfdakOutcome | null;
+}
+
+/**
+ * The layers of the roof build-up above the rafters of an afdak, in the afdak's section: x along
+ * the depth from the wall (s), y the height. Empty when there is no afdak or no build-up.
+ */
+export function afdakLayers(d: DakResult): { name: string; pts: { x: number; y: number }[] }[] {
+  const r = d.afdak?.rafters;
+  if (!r || !d.buildup) return [];
+  const front = r.seats[1];
+  const sFront = front.s1 - front.length;
+  return d.buildup.lines
+    .filter((l) => l.name !== 'Onderkant constructie' && l.name !== 'Bovenkant spoor / gording')
+    .map((l) => ({ name: l.name, pts: l.pts.map((p) => ({ x: sFront - p.x, y: p.y })) }));
+}
+
+type Section = Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage' | 'afdak'>;
+
+/**
+ * The section of an afdak as a lean-to roof, on the underside of its rafters: from the front seat
+ * (low side, left) to the back seat or the face of the wall beam (high side, right), with the front
+ * and back ends of the rafters as the overhangs. Along the ridge: the afdak's width, edge to edge.
+ */
+function sectionFromAfdak(o: AfdakOutcome): Outcome<Section> {
+  const r = o.rafters!;
+  const [back, front] = r.seats;
+  const sFront = front.s1 - front.length;
+  const sBack = back.against ? r.start : back.s1 - back.length;
+  return guard(() => {
+    const roof = roofSection({
+      type: 'lessenaarsdak',
+      span: sFront - sBack,
+      wallLeft: r.undersideAt(sFront),
+      wallRight: r.undersideAt(sBack),
+      overhang: o.plan.depth - sFront,
+      overhangRight: sBack - r.start,
+    });
+    const w = o.plan.width;
+    return { status: 'ok', value: { roof, purlinLength: w, length: w, surfaceLeft: roof.left.rafterWithOverhang * w, surfaceRight: null } };
+  });
 }
 
 export function computeDak(item: DakItem): Outcome<DakResult> {
-  const r = computeSection(item);
+  // A lean-to as an afdak: the posts, beams and rafters give the section.
+  let afdak: AfdakOutcome | null = null;
+  let r: Outcome<Section>;
+  if (item.roofType === 'lessenaarsdak' && item.afdakOn) {
+    const a = computeAfdakEntry(item.afdak ?? emptyAfdak());
+    if (a.status !== 'ok') return a;
+    afdak = a.value;
+    if (!afdak.rafters) return { status: 'incomplete', message: afdak.roofMessage ?? 'Vul bij het afdak de helling, de hoogte van een ligger en de maat van liggers en sporen in.' };
+    r = sectionFromAfdak(afdak);
+  } else {
+    r = computeSection(item);
+  }
   if (r.status !== 'ok') return r as Outcome<DakResult>;
   let buildup: BuildupResult | null = null;
   let buildupMessage: string | null = null;
   try {
-    buildup = buildupOf(item.buildup, r.value.roof);
+    // An afdak's section is the underside of its rafters, and the rafter is the first layer.
+    buildup = buildupOf(item.buildup, r.value.roof, afdak ? { reference: 'onder', rafter: afdak.rafterHeight ?? 0 } : undefined);
   } catch (e) {
     if (!(e instanceof GeometryError || e instanceof InputError)) throw e;
     buildupMessage = e.message;
@@ -209,12 +264,13 @@ export function computeDak(item: DakItem): Outcome<DakResult> {
     if (!(e instanceof GeometryError || e instanceof InputError)) throw e;
     tilesMessage = e.message;
   }
-  return { status: 'ok', value: { ...r.value, tiles, tilesMessage, buildup, buildupMessage } };
+  return { status: 'ok', value: { ...r.value, tiles, tilesMessage, buildup, buildupMessage, afdak } };
 }
 
 /** Heights of the layers; null when no thickness is entered. */
-function buildupOf(entry: BuildupEntry | undefined, roof: RoofResult): BuildupResult | null {
-  if (!entry) return null;
+function buildupOf(entry: BuildupEntry | undefined, roof: RoofResult, fixed?: Pick<BuildupSpec, 'reference' | 'rafter'>): BuildupResult | null {
+  if (!entry && !fixed) return null;
+  entry ??= { reference: 'onder', rafter: '', deck: '', counter: '', batten: '', tile: '' };
   const t = (text: string, label: string) => {
     const v = len(text ?? '', label);
     if (v !== null && v < 0) throw new InputError(`${label} kan niet negatief zijn.`);
@@ -222,11 +278,12 @@ function buildupOf(entry: BuildupEntry | undefined, roof: RoofResult): BuildupRe
   };
   const spec = {
     reference: entry.reference === 'onder' ? ('onder' as const) : ('boven' as const),
-    rafter: t(entry.rafter, 'Hoogte spar / gording'),
+    rafter: t(entry.rafter, 'Hoogte spoor / gording'),
     deck: t(entry.deck, 'Dikte dakbeschot'),
     counter: t(entry.counter, 'Dikte tengel'),
     batten: t(entry.batten, 'Dikte panlat'),
     tile: t(entry.tile, 'Dikte pan'),
+    ...fixed,
   };
   if (spec.rafter + spec.deck + spec.counter + spec.batten + spec.tile <= 0) return null;
   return computeBuildup(roof, spec);
@@ -235,7 +292,7 @@ function buildupOf(entry: BuildupEntry | undefined, roof: RoofResult): BuildupRe
 const NUMBER_RE = /^\s*(\d+(?:[.,]\d+)?)\s*(kg)?\s*$/i;
 
 /** Tiles from the entered tile data; null when nothing is entered. Throws on a missing or wrong value. */
-function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage'>, slopes?: number[], noCounter = false): TileResult | null {
+function tilesOf(entry: TileEntry | undefined, dak: Section, slopes?: number[], noCounter = false): TileResult | null {
   if (!entry || Object.values(entry).every((v) => !String(v ?? '').trim())) return null;
   const positive = (text: string, label: string) => {
     const v = len(text, label);
@@ -245,7 +302,7 @@ function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 't
   const gauge = positive(entry.gauge, 'Latafstand');
   const cover = positive(entry.cover, 'Dekkende breedte');
   const eavesGap = len(entry.eavesGap, 'Laatste latafstand');
-  const missing = [gauge === null && 'de latafstand', cover === null && 'de dekkende breedte', eavesGap === null && 'de laatste latafstand (onderste lat tot het einde van de spar)'].filter(Boolean);
+  const missing = [gauge === null && 'de latafstand', cover === null && 'de dekkende breedte', eavesGap === null && 'de laatste latafstand (onderste lat tot het einde van de spoor)'].filter(Boolean);
   if (missing.length) throw new InputError(`Vul voor de pannen nog ${missing.join(', ')} in.`);
   const gaugeMin = positive(entry.gaugeMin, 'Kleinste latafstand');
   if (gaugeMin !== null && gaugeMin > gauge!) throw new InputError('De kleinste latafstand is groter dan de latafstand.');
@@ -270,13 +327,13 @@ function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 't
   }, slopes);
 }
 
-function computeSection(item: DakItem): Outcome<Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage'>> {
+function computeSection(item: DakItem): Outcome<Section> {
   return guard(() => {
     const mansard = item.roofType === 'mansardekap';
     const span = len(item.span, 'Overspanning');
     const rise = len(item.rise, mansard ? 'Hoogte bovendak' : 'Nokhoogte');
     const pitch = ang(item.pitch, mansard ? 'Helling bovendak' : 'Dakhelling');
-    const rafter = len(item.rafter, mansard ? 'Lengte bovendak' : 'Sparlengte');
+    const rafter = len(item.rafter, mansard ? 'Lengte bovendak' : 'Spoorlengte');
     const overhang = len(item.overhang, 'Overstek goot');
     const overhangRight = len(item.overhangRight ?? '', 'Overstek goot rechts');
     const length = len(item.length, 'Daklengte');
@@ -307,7 +364,7 @@ function computeSection(item: DakItem): Outcome<Omit<DakResult, 'tiles' | 'tiles
       pitch,
       rafter,
       pitchRight: isGable ? ang(item.pitchRight ?? '', 'Dakhelling rechts') : null,
-      rafterRight: isGable ? len(item.rafterRight ?? '', 'Spar rechts') : null,
+      rafterRight: isGable ? len(item.rafterRight ?? '', 'Spoor rechts') : null,
       ridgeOffset: isGable ? len(item.ridgeOffset, 'Afstand tot nok') : null,
     };
     const wallLeft = len(item.wallLeft ?? '', 'Muurhoogte links');
@@ -315,7 +372,7 @@ function computeSection(item: DakItem): Outcome<Omit<DakResult, 'tiles' | 'tiles
     const given = Object.values(values).filter((v) => v !== null).length;
     const wallsDiffer = wallLeft !== null && wallRight !== null && Math.abs(wallLeft - wallRight) > 1e-9;
     if (given === 0 && !(item.roofType === 'lessenaarsdak' && wallsDiffer)) {
-      return incomplete(isGable ? 'Vul twee waarden in, bijvoorbeeld de dakhelling links en rechts.' : 'Vul hoogteverschil, dakhelling of sparlengte in.');
+      return incomplete(isGable ? 'Vul twee waarden in, bijvoorbeeld de dakhelling links en rechts.' : 'Vul hoogteverschil, dakhelling of spoorlengte in.');
     }
     if (isGable && given === 1 && wallsDiffer && values.ridgeOffset === null) {
       return incomplete('De muren verschillen in hoogte: vul nog een tweede waarde in, zoals de helling aan de andere kant.');

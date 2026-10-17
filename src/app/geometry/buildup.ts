@@ -22,7 +22,7 @@ export interface BuildupSpec {
 }
 
 export const LAYERS: { key: keyof Omit<BuildupSpec, 'reference'>; top: string }[] = [
-  { key: 'rafter', top: 'Bovenkant spar / gording' },
+  { key: 'rafter', top: 'Bovenkant spoor / gording' },
   { key: 'deck', top: 'Bovenkant dakbeschot' },
   { key: 'counter', top: 'Bovenkant tengel' },
   { key: 'batten', top: 'Bovenkant panlat' },

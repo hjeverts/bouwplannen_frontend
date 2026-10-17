@@ -182,7 +182,7 @@ describe('compute', () => {
     expect(without.value.tiles!.counterLength).toBeNull();
     // Neither a deck nor counter battens: the battens lie straight on the rafters.
     const names = without.value.buildup!.lines.map((l) => l.name);
-    expect(names).toEqual(['Onderkant constructie', 'Bovenkant spar / gording', 'Bovenkant panlat', 'Bovenkant pannen']);
+    expect(names).toEqual(['Onderkant constructie', 'Bovenkant spoor / gording', 'Bovenkant panlat', 'Bovenkant pannen']);
     // Without a build-up nothing is known about counter battens: counted as before.
     const plain = computeDak(item);
     expect(plain.status === 'ok' && plain.value.tiles!.counter).toBe(true);

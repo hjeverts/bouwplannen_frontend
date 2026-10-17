@@ -1,12 +1,14 @@
 import { Component, computed, inject, input, output } from '@angular/core';
 import { roofSheet } from '../drawing/roof-sheet';
+import { AfdakPanel } from './afdak-editor';
+import { afdakLayers } from '../model/compute';
 import { ProjectStore } from '../model/project-store';
 import { PrintService } from '../ui/print';
 import { centroid, Drawing, DrawingSpec, Mark, Segment } from '../drawing/drawing';
 import { Point, RoofResult } from '../geometry/geometry';
 import { formatAngle, formatArea, formatLength, formatMm, formatPercent } from '../geometry/units';
 import { computeDak } from '../model/compute';
-import { BuildupEntry, DakItem, emptyBuildup, emptyTiles, TileEntry } from '../model/models';
+import { AfdakEntry, BuildupEntry, DakItem, emptyAfdak, emptyBuildup, emptyTiles, TileEntry } from '../model/models';
 import { MeasureField } from '../ui/measure-field';
 import { ResultRow, Results } from '../ui/results';
 
@@ -34,7 +36,7 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
 
 @Component({
   selector: 'app-dak-editor',
-  imports: [MeasureField, Results, Drawing],
+  imports: [MeasureField, Results, Drawing, AfdakPanel],
   template: `
     <div class="toolbar">
       <div class="segmented" role="radiogroup" aria-label="Daktype">
@@ -43,7 +45,16 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
         <button type="button" role="radio" [attr.aria-checked]="type() === 'mansardekap'" (click)="setType('mansardekap')">Mansardekap</button>
       </div>
     </div>
+    @if (type() === 'lessenaarsdak') {
+      <label class="check">
+        <input type="checkbox" [checked]="!!item().afdakOn" (change)="setAfdakOn(!item().afdakOn)" />
+        Afdak op staanders: de staanders, liggers en sporen bepalen het dak (met uitzet- en zaagtekening)
+      </label>
+    }
 
+    @if (afdakMode()) {
+      <app-afdak-panel [item]="afdakEntry()" [name]="item().name || 'Afdak'" [layers]="layers()" (changed)="setAfdak($event)" />
+    } @else {
     @switch (type()) {
       @case ('zadeldak') {
         <p class="lead">
@@ -60,8 +71,8 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
           <app-measure-field tag="α₁" label="Dakhelling links" kind="angle" [value]="v('pitch')" (valueChange)="set('pitch', $event)" [placeholder]="computed('pitch')" />
           <app-measure-field tag="α₂" label="Dakhelling rechts" kind="angle" [value]="v('pitchRight')" (valueChange)="set('pitchRight', $event)" [placeholder]="computed('pitchRight')" />
           <app-measure-field tag="N" label="Muur links tot nok" [value]="v('ridgeOffset')" (valueChange)="set('ridgeOffset', $event)" [placeholder]="computed('ridgeOffset')" />
-          <app-measure-field tag="L₁" label="Spar links" [value]="v('rafter')" (valueChange)="set('rafter', $event)" [placeholder]="computed('rafter')" />
-          <app-measure-field tag="L₂" label="Spar rechts" [value]="v('rafterRight')" (valueChange)="set('rafterRight', $event)" [placeholder]="computed('rafterRight')" />
+          <app-measure-field tag="L₁" label="Spoor links" [value]="v('rafter')" (valueChange)="set('rafter', $event)" [placeholder]="computed('rafter')" />
+          <app-measure-field tag="L₂" label="Spoor rechts" [value]="v('rafterRight')" (valueChange)="set('rafterRight', $event)" [placeholder]="computed('rafterRight')" />
           <app-measure-field
             tag="h"
             [label]="walls() ? 'Nokhoogte vanaf vloer' : 'Nokhoogte boven muurplaat'"
@@ -89,7 +100,7 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
           <div class="fields fields--3">
             <app-measure-field tag="h" label="Hoogteverschil" [value]="v('rise')" (valueChange)="set('rise', $event)" [placeholder]="computed('rise')" />
             <app-measure-field tag="α" label="Dakhelling" kind="angle" [value]="v('pitch')" (valueChange)="set('pitch', $event)" [placeholder]="computed('pitch')" />
-            <app-measure-field tag="L" label="Sparlengte" [value]="v('rafter')" (valueChange)="set('rafter', $event)" [placeholder]="computed('rafter')" />
+            <app-measure-field tag="L" label="Spoorlengte" [value]="v('rafter')" (valueChange)="set('rafter', $event)" [placeholder]="computed('rafter')" />
           </div>
         }
       }
@@ -106,7 +117,7 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
           <app-measure-field tag="i" label="Inzet knik" hint="Horizontaal vanaf de muur" [value]="v('lowerRun')" (valueChange)="set('lowerRun', $event)" [placeholder]="computed('lowerRun')" />
           <app-measure-field tag="k" label="Knikhoogte" hint="Boven de muurplaat" [value]="v('lowerRise')" (valueChange)="set('lowerRise', $event)" [placeholder]="computed('lowerRise')" />
           <app-measure-field tag="α" label="Helling onderdak" kind="angle" [value]="v('lowerPitch')" (valueChange)="set('lowerPitch', $event)" [placeholder]="computed('lowerPitch')" />
-          <app-measure-field tag="L₁" label="Spar onderdak" [value]="v('lowerRafter')" (valueChange)="set('lowerRafter', $event)" [placeholder]="computed('lowerRafter')" />
+          <app-measure-field tag="L₁" label="Spoor onderdak" [value]="v('lowerRafter')" (valueChange)="set('lowerRafter', $event)" [placeholder]="computed('lowerRafter')" />
         </div>
         @if (lowerCount() > 2) {
           <p class="status status--error" role="status">Vul voor het onderdak precies twee waarden in; laat de andere twee leeg.</p>
@@ -115,7 +126,7 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
         <div class="fields fields--3">
           <app-measure-field tag="h" label="Nok boven de knik" [value]="v('rise')" (valueChange)="set('rise', $event)" [placeholder]="computed('rise')" />
           <app-measure-field tag="β" label="Helling bovendak" kind="angle" [value]="v('pitch')" (valueChange)="set('pitch', $event)" [placeholder]="computed('pitch')" />
-          <app-measure-field tag="L₂" label="Spar bovendak" [value]="v('rafter')" (valueChange)="set('rafter', $event)" [placeholder]="computed('rafter')" />
+          <app-measure-field tag="L₂" label="Spoor bovendak" [value]="v('rafter')" (valueChange)="set('rafter', $event)" [placeholder]="computed('rafter')" />
         </div>
         @if (upperCount() > 1) {
           <p class="status status--error" role="status">Vul voor het bovendak één waarde in; laat de andere twee leeg.</p>
@@ -125,7 +136,7 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
 
     <h3 class="group-title">Overstek en lengte</h3>
     <div class="fields fields--3">
-      <app-measure-field tag="o" [label]="eavesLabel('links')" [value]="item().overhang" (valueChange)="set('overhang', $event)" hint="Horizontaal, maakt de spar langer" />
+      <app-measure-field tag="o" [label]="eavesLabel('links')" [value]="item().overhang" (valueChange)="set('overhang', $event)" hint="Horizontaal, maakt de spoor langer" />
       <app-measure-field
         tag="o"
         [label]="eavesLabel('rechts')"
@@ -151,6 +162,7 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
         hint="Leeg = als de andere kopgevel; 0 = geen overstek"
       />
     </div>
+    }
     <div class="split">
       <app-results [rows]="rows()" [message]="tooMany() ? null : message()" [state]="outcome().status" />
       <app-drawing [spec]="drawing()" ariaLabel="Doorsnede van het dak" />
@@ -166,14 +178,20 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
       <summary>Dakopbouw en hoogtes</summary>
       <p class="hint">
         Diktes haaks op het dak. De app rekent uit hoe hoog elke laag komt bij de muur, aan het einde van de overstek en in de nok: tot waar de muurplaat,
-        sparren en nokbalk moeten komen, en hoeveel hoogte je onder de overstek overhoudt.
+        sporen en nokbalk moeten komen, en hoeveel hoogte je onder de overstek overhoudt.
       </p>
-      <div class="segmented segmented--small" role="radiogroup" aria-label="De dakmaten hierboven zijn">
-        <button type="button" role="radio" [attr.aria-checked]="reference() === 'boven'" (click)="setBuildup('reference', 'boven')">Dakmaten = bovenkant pannen</button>
-        <button type="button" role="radio" [attr.aria-checked]="reference() === 'onder'" (click)="setBuildup('reference', 'onder')">Dakmaten = onderkant spar</button>
-      </div>
+      @if (afdakMode()) {
+        <p class="hint">De sporen van het afdak zijn de onderste laag; vul hier in wat erop komt.</p>
+      } @else {
+        <div class="segmented segmented--small" role="radiogroup" aria-label="De dakmaten hierboven zijn">
+          <button type="button" role="radio" [attr.aria-checked]="reference() === 'boven'" (click)="setBuildup('reference', 'boven')">Dakmaten = bovenkant pannen</button>
+          <button type="button" role="radio" [attr.aria-checked]="reference() === 'onder'" (click)="setBuildup('reference', 'onder')">Dakmaten = onderkant spoor</button>
+        </div>
+      }
       <div class="fields fields--4 buildup-fields">
-        <app-measure-field label="Hoogte spar / gording" [value]="b('rafter')" (valueChange)="setBuildup('rafter', $event)" hint="Balkhoogte haaks op het dak" />
+        @if (!afdakMode()) {
+          <app-measure-field label="Hoogte spoor / gording" [value]="b('rafter')" (valueChange)="setBuildup('rafter', $event)" hint="Balkhoogte haaks op het dak" />
+        }
         <app-measure-field label="Dakbeschot" [value]="b('deck')" (valueChange)="setBuildup('deck', $event)" hint="Of dakplaat / isolerend dakelement" />
         <app-measure-field label="Tengel" [value]="b('counter')" (valueChange)="setBuildup('counter', $event)" hint="Dikte" />
         <app-measure-field label="Panlat" [value]="b('batten')" (valueChange)="setBuildup('batten', $event)" hint="Dikte" />
@@ -213,8 +231,8 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
     <details class="more" [open]="hasTiles()">
       <summary>Dakpannen, panlatten en tengels</summary>
       <p class="hint">
-        Neem de maten over van het blad van de fabrikant. Per dakvlak, langs de spar gemeten: de bovenste lat ligt een klein stukje onder de nok, dan
-        volgen gelijke latafstanden, en onderaan de laatste latafstand tot het einde van de spar (met overstek), waar de gootlat ligt.
+        Neem de maten over van het blad van de fabrikant. Per dakvlak, langs de spoor gemeten: de bovenste lat ligt een klein stukje onder de nok, dan
+        volgen gelijke latafstanden, en onderaan de laatste latafstand tot het einde van de spoor (met overstek), waar de gootlat ligt.
       </p>
       <h3 class="group-title">Pan</h3>
       <div class="fields fields--4">
@@ -234,12 +252,12 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
       </div>
       <h3 class="group-title">Latten en tengels</h3>
       <div class="fields fields--4">
-        <app-measure-field label="Bovenste lat tot nok" [value]="t('ridgeGap')" (valueChange)="setTile('ridgeGap', $event)" placeholder="0,035" hint="Langs de spar, meestal 30–40 mm" />
-        <app-measure-field label="Laatste latafstand" [value]="t('eavesGap')" (valueChange)="setTile('eavesGap', $event)" hint="Onderste lat tot het einde van de spar, bij de goot" />
+        <app-measure-field label="Bovenste lat tot nok" [value]="t('ridgeGap')" (valueChange)="setTile('ridgeGap', $event)" placeholder="0,035" hint="Langs de spoor, meestal 30–40 mm" />
+        <app-measure-field label="Laatste latafstand" [value]="t('eavesGap')" (valueChange)="setTile('eavesGap', $event)" hint="Onderste lat tot het einde van de spoor, bij de goot" />
         @if (tiles()?.counter === false) {
           <p class="hint">Geen tengels in de dakopbouw: de panlatten komen direct op de sporen.</p>
         } @else {
-          <app-measure-field label="Tengels h.o.h." [value]="t('counterSpacing')" (valueChange)="setTile('counterSpacing', $event)" placeholder="0,600" hint="Meestal op elke spar" />
+          <app-measure-field label="Tengels h.o.h." [value]="t('counterSpacing')" (valueChange)="setTile('counterSpacing', $event)" placeholder="0,600" hint="Meestal op elke spoor" />
         }
       </div>
       <h3 class="group-title">Gevelpannen (als die er zijn)</h3>
@@ -309,6 +327,22 @@ export class DakEditor {
     }
   });
 
+  /** A lean-to as an afdak on posts: the afdak gives the section. */
+  protected readonly afdakMode = computed(() => this.item().roofType === 'lessenaarsdak' && !!this.item().afdakOn);
+  protected readonly afdakEntry = computed(() => this.item().afdak ?? emptyAfdak());
+  protected readonly layers = computed(() => {
+    const o = this.outcome();
+    return o.status === 'ok' ? afdakLayers(o.value) : [];
+  });
+
+  protected setAfdakOn(on: boolean): void {
+    this.changed.emit({ ...this.item(), afdakOn: on, afdak: this.item().afdak ?? emptyAfdak() });
+  }
+
+  protected setAfdak(afdak: AfdakEntry): void {
+    this.changed.emit({ ...this.item(), afdak });
+  }
+
   protected b(field: keyof BuildupEntry): string {
     return (this.item().buildup?.[field] as string | undefined) ?? '';
   }
@@ -341,7 +375,7 @@ export class DakEditor {
   protected readonly heightNote = computed(() => {
     const r = this.roof();
     if (!r) return '';
-    const what = this.reference() === 'boven' ? 'de bovenkant van de pannen' : 'de onderkant van de spar';
+    const what = this.reference() === 'boven' ? 'de bovenkant van de pannen' : 'de onderkant van de spoor';
     return r.fromFloor
       ? `Hoogtes vanaf de vloer. De ingevoerde muurhoogtes en nok zijn ${what}.`
       : `Hoogtes vanaf de ingevoerde dakmaat bij de muur (${what} = 0). Vul de muurhoogtes in voor hoogtes vanaf de vloer.`;
@@ -355,10 +389,10 @@ export class DakEditor {
     const under = 0;
     const top = bu.lines.length - 1;
     for (const pt of bu.points) {
-      if (pt.label.startsWith('Muur')) rows.push({ label: `${pt.label}: onderkant spar (muurplaat)`, value: formatLength(pt.z[under]), main: true });
+      if (pt.label.startsWith('Muur')) rows.push({ label: `${pt.label}: onderkant spoor (muurplaat)`, value: formatLength(pt.z[under]), main: true });
       else if (pt.label.startsWith('Einde overstek')) rows.push({ label: `Onder het ${pt.label.toLowerCase()}`, value: formatLength(pt.z[under]) });
       else if (pt.label === 'Nok') {
-        rows.push({ label: 'Nok: onderkant sparren (bovenkant nokbalk)', value: formatLength(pt.z[under]), main: true });
+        rows.push({ label: 'Nok: onderkant sporen (bovenkant nokbalk)', value: formatLength(pt.z[under]), main: true });
         if (this.reference() === 'onder') rows.push({ label: 'Nok: bovenkant pannen', value: formatLength(pt.z[top]) });
       }
     }
@@ -402,7 +436,7 @@ export class DakEditor {
     for (const p of t.planes) {
       const name = t.planes.length > 1 ? `${p.label.replace('Dakvlak ', '')}: ` : '';
       rows.push(
-        { label: `${name}spar met overstek`, value: formatLength(p.slope) },
+        { label: `${name}spoor met overstek`, value: formatLength(p.slope) },
         { label: `${name}latafstand`, value: formatMm(p.gauge) },
         { label: `${name}bovenste lat tot nok`, value: formatMm(p.ridgeGap) },
         { label: `${name}laatste latafstand`, value: formatMm(p.eavesGap), tone: Math.abs(p.eavesDiff) > 0.005 ? 'warn' : undefined },
@@ -503,12 +537,12 @@ export class DakEditor {
         { label: 'Knikhoogte', value: formatLength(roof.knee.y) },
         { label: 'Breedte op kniklijn', value: formatLength(roof.span - 2 * roof.knee.x) },
         { label: 'Helling onderdak', value: `${formatAngle(roof.left.pitch, 2)} · ${pct(roof.left.pitchPercent)}` },
-        { label: 'Spar onderdak', value: formatLength(roof.left.rafter) },
+        { label: 'Spoor onderdak', value: formatLength(roof.left.rafter) },
         roof.overhangLeft === roof.overhangRight
-          ? { label: 'Spar onderdak met overstek', value: formatLength(roof.left.rafterWithOverhang) }
-          : { label: 'Spar onderdak met overstek links · rechts', value: `${formatLength(roof.left.rafterWithOverhang)} · ${formatLength(roof.right!.rafterWithOverhang)}` },
+          ? { label: 'Spoor onderdak met overstek', value: formatLength(roof.left.rafterWithOverhang) }
+          : { label: 'Spoor onderdak met overstek links · rechts', value: `${formatLength(roof.left.rafterWithOverhang)} · ${formatLength(roof.right!.rafterWithOverhang)}` },
         { label: 'Helling bovendak', value: `${formatAngle(roof.upper.pitch, 2)} · ${pct(roof.upper.pitchPercent)}` },
-        { label: 'Spar bovendak', value: formatLength(roof.upper.rafter) },
+        { label: 'Spoor bovendak', value: formatLength(roof.upper.rafter) },
         { label: 'Knikhoek', value: formatAngle(180 - roof.left.pitch + roof.upper.pitch, 2) },
         ...tail,
       ];
@@ -519,8 +553,8 @@ export class DakEditor {
         { label: 'Dakhelling', value: formatAngle(roof.left.pitch, 2), main: true },
         { label: 'Helling in procent', value: pct(roof.left.pitchPercent) },
         { label: 'Hoogteverschil', value: formatLength(roof.left.rise) },
-        { label: 'Sparlengte', value: formatLength(roof.left.rafter) },
-        { label: 'Spar met overstek (beide kanten)', value: formatLength(roof.left.rafterWithOverhang) },
+        { label: 'Spoorlengte', value: formatLength(roof.left.rafter) },
+        { label: 'Spoor met overstek (beide kanten)', value: formatLength(roof.left.rafterWithOverhang) },
         ...tail,
       ];
     }
@@ -537,8 +571,8 @@ export class DakEditor {
     }
     rows.push(
       { label: roof.ridgeAssumedCentre ? 'Nok vanaf muur links (midden)' : 'Nok vanaf muur links', value: formatLength(roof.ridge.x) },
-      { label: 'Spar links · met overstek', value: `${formatLength(roof.left.rafter)} · ${formatLength(roof.left.rafterWithOverhang)}` },
-      { label: 'Spar rechts · met overstek', value: `${formatLength(right.rafter)} · ${formatLength(right.rafterWithOverhang)}` },
+      { label: 'Spoor links · met overstek', value: `${formatLength(roof.left.rafter)} · ${formatLength(roof.left.rafterWithOverhang)}` },
+      { label: 'Spoor rechts · met overstek', value: `${formatLength(right.rafter)} · ${formatLength(right.rafterWithOverhang)}` },
       ...tail,
     );
     return rows;

@@ -4,7 +4,7 @@
  * unit ("345 cm"), angles and other values stay as they are.
  */
 import { lengthInput, LengthUnit, UNIT_FACTOR } from '../geometry/units';
-import { Item } from './models';
+import { AfdakEntry, Item } from './models';
 
 const PLAIN = /^\s*(-?\d+(?:[.,]\d+)?)\s*$/;
 
@@ -60,6 +60,7 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
           batten: c(item.buildup.batten)!,
           tile: c(item.buildup.tile)!,
         },
+        afdak: item.afdak && convertAfdak(item.afdak, c),
         tiles: item.tiles && {
           ...item.tiles,
           width: c(item.tiles.width)!,
@@ -74,33 +75,6 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
           vergeEnd: c(item.tiles.vergeEnd)!,
         },
         length: c(item.length)!,
-      };
-    case 'afdak':
-      return {
-        ...item,
-        width: c(item.width)!,
-        depth: c(item.depth)!,
-        wallOffset: c(item.wallOffset)!,
-        postWidth: c(item.postWidth)!,
-        postDepth: c(item.postDepth)!,
-        overhangSide: c(item.overhangSide)!,
-        overhangFront: c(item.overhangFront)!,
-        overhangBack: c(item.overhangBack)!,
-        footing: c(item.footing)!,
-        wallThickness: c(item.wallThickness)!,
-        roof: item.roof && {
-          ...item.roof,
-          frontHeight: c(item.roof.frontHeight)!,
-          backHeight: c(item.roof.backHeight)!,
-          beamWidth: c(item.roof.beamWidth)!,
-          beamHeight: c(item.roof.beamHeight)!,
-          backWidth: c(item.roof.backWidth)!,
-          rafterWidth: c(item.roof.rafterWidth)!,
-          rafterHeight: c(item.roof.rafterHeight)!,
-          rafterSpacing: c(item.roof.rafterSpacing)!,
-          backOffset: c(item.roof.backOffset),
-          backBeamHeight: c(item.roof.backBeamHeight),
-        },
       };
     case 'maten':
       return { ...item, entries: item.entries.map((e) => ({ ...e, value: c(e.value)! })) };
@@ -134,4 +108,33 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
         })),
       };
   }
+}
+
+function convertAfdak(a: AfdakEntry, c: (t: string | undefined) => string | undefined): AfdakEntry {
+  return {
+    ...a,
+    width: c(a.width)!,
+    depth: c(a.depth)!,
+    wallOffset: c(a.wallOffset)!,
+    postWidth: c(a.postWidth)!,
+    postDepth: c(a.postDepth)!,
+    overhangSide: c(a.overhangSide)!,
+    overhangFront: c(a.overhangFront)!,
+    overhangBack: c(a.overhangBack)!,
+    footing: c(a.footing)!,
+    wallThickness: c(a.wallThickness)!,
+    roof: a.roof && {
+      ...a.roof,
+      frontHeight: c(a.roof.frontHeight)!,
+      backHeight: c(a.roof.backHeight)!,
+      beamWidth: c(a.roof.beamWidth)!,
+      beamHeight: c(a.roof.beamHeight)!,
+      backWidth: c(a.roof.backWidth)!,
+      rafterWidth: c(a.roof.rafterWidth)!,
+      rafterHeight: c(a.roof.rafterHeight)!,
+      rafterSpacing: c(a.roof.rafterSpacing)!,
+      backOffset: c(a.roof.backOffset),
+      backBeamHeight: c(a.roof.backBeamHeight),
+    },
+  };
 }

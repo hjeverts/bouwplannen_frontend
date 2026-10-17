@@ -95,6 +95,21 @@ export interface TileEntry {
   weight: string;
 }
 
+/** Layers of the roof, thicknesses square to the slope. */
+export interface BuildupEntry {
+  /** 'boven' (default): the roof as entered is the top of the tiles; 'onder': the underside of the construction. */
+  reference: 'boven' | 'onder';
+  rafter: string;
+  deck: string;
+  counter: string;
+  batten: string;
+  tile: string;
+}
+
+export function emptyBuildup(): BuildupEntry {
+  return { reference: 'boven', rafter: '', deck: '', counter: '', batten: '', tile: '' };
+}
+
 export function emptyTiles(): TileEntry {
   return { width: '', length: '', gauge: '', gaugeMin: '', cover: '', ridgeGap: '', eavesGap: '', counterSpacing: '', vergeStart: '', vergeEnd: '', minPitch: '', weight: '' };
 }
@@ -129,6 +144,8 @@ export interface DakItem extends BaseItem {
   gableOverhangEnd?: string;
   /** Roof tiles: battens, counter battens and the number of tiles (optional). */
   tiles?: TileEntry;
+  /** Roof build-up: thicknesses of the layers, and whether the roof as entered is their top or underside. */
+  buildup?: BuildupEntry;
   /** Length of the roof along the ridge, for roof surface. */
   length: string;
 }

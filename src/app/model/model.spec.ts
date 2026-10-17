@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { computeDak, computeDriehoek, computeHoek, computeVorm } from './compute';
 import { outlineOf, outlineToDxf, parseImport, projectToCsv, toJson } from './export';
-import { createItem, DakItem, DriehoekItem, emptyTiles, HoekItem, resizeVorm, VormItem } from './models';
+import { createItem, DakItem, DriehoekItem, emptyBuildup, emptyTiles, HoekItem, resizeVorm, VormItem } from './models';
 import { ProjectStore } from './project-store';
 import { MemoryProjectStorage, PROJECT_STORAGE } from './storage';
 
@@ -145,6 +145,28 @@ describe('compute', () => {
     if (half.status === 'ok') expect(half.value.tilesMessage).toMatch(/dekkende breedte/);
     const wrong = computeDak({ ...item, tiles: { ...tiles, weight: 'zwaar' } });
     if (wrong.status === 'ok') expect(wrong.value.tilesMessage).toMatch(/geen getal/);
+  });
+
+  it('roof build-up: heights from the top of the tiles, battens along their own line', () => {
+    const buildup = { ...emptyBuildup(), rafter: '175 mm', deck: '18 mm', counter: '22 mm', batten: '22 mm', tile: '68 mm' };
+    const item = { ...(createItem('dak') as DakItem), span: '6', wallLeft: '3', wallRight: '3', pitch: '40', pitchRight: '30', overhang: '0,3', buildup };
+    const r = computeDak(item);
+    if (r.status !== 'ok') throw new Error(r.message);
+    const bu = r.value.buildup!;
+    expect(r.value.buildupMessage).toBeNull();
+    const wall = bu.points.find((p) => p.label === 'Muur links')!;
+    // Top of the tiles at 3 m on the wall (as entered); the rafters sit 305 mm square lower.
+    expect(wall.z[bu.lines.length - 1]).toBeCloseTo(3, 9);
+    expect(wall.z[0]).toBeCloseTo(3 - 0.305 / Math.cos((40 * Math.PI) / 180), 9);
+    // Tiles laid out along the top of the battens.
+    const withTiles = computeDak({ ...item, tiles: { ...emptyTiles(), gauge: '308 mm', cover: '204 mm', eavesGap: '245 mm' } });
+    if (withTiles.status !== 'ok') throw new Error(withTiles.message);
+    expect(withTiles.value.tiles!.planes[0].slope).toBeCloseTo(bu.battenSlopes[0], 9);
+    // Nothing entered: no build-up; a negative thickness: a message, the roof still works.
+    const none = computeDak({ ...item, buildup: emptyBuildup() });
+    expect(none.status === 'ok' && none.value.buildup === null).toBe(true);
+    const bad = computeDak({ ...item, buildup: { ...buildup, deck: '-18 mm' } });
+    expect(bad.status === 'ok' && /negatief/.test(bad.value.buildupMessage ?? '')).toBe(true);
   });
 
   it('zadeldak: left and right pitch with different wall heights', () => {

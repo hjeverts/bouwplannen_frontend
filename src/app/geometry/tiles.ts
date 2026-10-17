@@ -132,9 +132,11 @@ function planesOf(roof: RoofResult): { label: string; slope: number; pitch: numb
  * Tiles, battens and counter battens of a roof. `width`: length along the ridge including the gable
  * overhangs (purlin length), null when unknown.
  */
-export function computeTiles(roof: RoofResult, width: number | null, spec: TileSpec): TileResult {
+export function computeTiles(roof: RoofResult, width: number | null, spec: TileSpec, slopes?: number[]): TileResult {
   const warnings: string[] = [];
-  const planes = planesOf(roof).map((p) => {
+  // With a roof build-up, the battens are laid out along the top of the battens, not the rafter line.
+  const planes = planesOf(roof).map((p0, i) => {
+    const p = slopes?.[i] !== undefined ? { ...p0, slope: slopes[i] } : p0;
     const d = dividePlane(p.slope, spec);
     if (spec.minPitch !== null && p.pitch < spec.minPitch - EPS) {
       warnings.push(`${p.label}: de helling (${p.pitch.toFixed(1).replace('.', ',')}°) is flauwer dan het minimum van deze pan (${String(spec.minPitch).replace('.', ',')}°).`);

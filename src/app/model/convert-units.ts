@@ -52,6 +52,14 @@ export function convertItem(item: Item, from: LengthUnit, to: LengthUnit): Item 
         gableOverhang: c(item.gableOverhang),
         overhangRight: c(item.overhangRight),
         gableOverhangEnd: c(item.gableOverhangEnd),
+        buildup: item.buildup && {
+          ...item.buildup,
+          rafter: c(item.buildup.rafter)!,
+          deck: c(item.buildup.deck)!,
+          counter: c(item.buildup.counter)!,
+          batten: c(item.buildup.batten)!,
+          tile: c(item.buildup.tile)!,
+        },
         tiles: item.tiles && {
           ...item.tiles,
           width: c(item.tiles.width)!,

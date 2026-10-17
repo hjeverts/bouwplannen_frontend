@@ -13,9 +13,10 @@ import {
   TraverseResult,
 } from '../geometry/geometry';
 import { analyzeRoom, OpeningInput, RoomResult } from '../geometry/room';
+import { BuildupResult, computeBuildup } from '../geometry/buildup';
 import { computeTiles, TileResult } from '../geometry/tiles';
 import { parseAngle, parseLength } from '../geometry/units';
-import { DakItem, TileEntry, DriehoekItem, HoekItem, MatenItem, VormItem } from './models';
+import { BuildupEntry, DakItem, TileEntry, DriehoekItem, HoekItem, MatenItem, VormItem } from './models';
 
 /**
  * Outcome of computing an item:
@@ -180,26 +181,57 @@ export interface DakResult {
   tiles: TileResult | null;
   /** Why the tiles cannot be worked out yet (missing or wrong value); null when they can, or none entered. */
   tilesMessage: string | null;
+  /** Heights of the roof layers; null when no layer is entered. */
+  buildup: BuildupResult | null;
+  buildupMessage: string | null;
 }
 
 export function computeDak(item: DakItem): Outcome<DakResult> {
   const r = computeSection(item);
   if (r.status !== 'ok') return r as Outcome<DakResult>;
+  let buildup: BuildupResult | null = null;
+  let buildupMessage: string | null = null;
+  try {
+    buildup = buildupOf(item.buildup, r.value.roof);
+  } catch (e) {
+    if (!(e instanceof GeometryError || e instanceof InputError)) throw e;
+    buildupMessage = e.message;
+  }
   let tiles: TileResult | null = null;
   let tilesMessage: string | null = null;
   try {
-    tiles = tilesOf(item.tiles, r.value);
+    tiles = tilesOf(item.tiles, r.value, buildup?.battenSlopes);
   } catch (e) {
     if (!(e instanceof GeometryError || e instanceof InputError)) throw e;
     tilesMessage = e.message;
   }
-  return { status: 'ok', value: { ...r.value, tiles, tilesMessage } };
+  return { status: 'ok', value: { ...r.value, tiles, tilesMessage, buildup, buildupMessage } };
+}
+
+/** Heights of the layers; null when no thickness is entered. */
+function buildupOf(entry: BuildupEntry | undefined, roof: RoofResult): BuildupResult | null {
+  if (!entry) return null;
+  const t = (text: string, label: string) => {
+    const v = len(text ?? '', label);
+    if (v !== null && v < 0) throw new InputError(`${label} kan niet negatief zijn.`);
+    return v ?? 0;
+  };
+  const spec = {
+    reference: entry.reference === 'onder' ? ('onder' as const) : ('boven' as const),
+    rafter: t(entry.rafter, 'Hoogte spar / gording'),
+    deck: t(entry.deck, 'Dikte dakbeschot'),
+    counter: t(entry.counter, 'Dikte tengel'),
+    batten: t(entry.batten, 'Dikte panlat'),
+    tile: t(entry.tile, 'Dikte pan'),
+  };
+  if (spec.rafter + spec.deck + spec.counter + spec.batten + spec.tile <= 0) return null;
+  return computeBuildup(roof, spec);
 }
 
 const NUMBER_RE = /^\s*(\d+(?:[.,]\d+)?)\s*(kg)?\s*$/i;
 
 /** Tiles from the entered tile data; null when nothing is entered. Throws on a missing or wrong value. */
-function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 'tilesMessage'>): TileResult | null {
+function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage'>, slopes?: number[]): TileResult | null {
   if (!entry || Object.values(entry).every((v) => !String(v ?? '').trim())) return null;
   const positive = (text: string, label: string) => {
     const v = len(text, label);
@@ -230,10 +262,10 @@ function tilesOf(entry: TileEntry | undefined, dak: Omit<DakResult, 'tiles' | 't
     vergeEnd: positive(entry.vergeEnd, 'Gevelpan rechts / achter'),
     minPitch,
     weight: w ? Number(w[1].replace(',', '.')) : null,
-  });
+  }, slopes);
 }
 
-function computeSection(item: DakItem): Outcome<Omit<DakResult, 'tiles' | 'tilesMessage'>> {
+function computeSection(item: DakItem): Outcome<Omit<DakResult, 'tiles' | 'tilesMessage' | 'buildup' | 'buildupMessage'>> {
   return guard(() => {
     const mansard = item.roofType === 'mansardekap';
     const span = len(item.span, 'Overspanning');

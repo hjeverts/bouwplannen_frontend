@@ -128,6 +128,13 @@ export function summarize(item: Item, items: Item[] = []): [string, string][] {
         if (t.counterBattens !== null) out.push(['Tengels', `${t.counterBattens} stuks, ${formatLength(t.counterLength, 1)}`]);
       }
       if (r.value.tilesMessage) out.push(['Pannen', r.value.tilesMessage]);
+      const bu = r.value.buildup;
+      if (bu) {
+        out.push(['Dakopbouw haaks op het dak', formatMm(bu.total)]);
+        for (const pt of bu.points) {
+          bu.lines.forEach((l, i) => out.push([`${pt.label}: ${l.name.toLowerCase()}`, formatLength(pt.z[i])]));
+        }
+      }
       return out;
     }
     case 'maten': {

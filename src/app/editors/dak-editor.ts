@@ -3,7 +3,7 @@ import { centroid, Drawing, DrawingSpec, Mark, Segment } from '../drawing/drawin
 import { Point, RoofResult } from '../geometry/geometry';
 import { formatAngle, formatArea, formatLength, formatMm, formatPercent } from '../geometry/units';
 import { computeDak } from '../model/compute';
-import { DakItem, emptyTiles, TileEntry } from '../model/models';
+import { BuildupEntry, DakItem, emptyBuildup, emptyTiles, TileEntry } from '../model/models';
 import { MeasureField } from '../ui/measure-field';
 import { ResultRow, Results } from '../ui/results';
 
@@ -153,6 +153,54 @@ const GABLE_VALUES: Field[] = ['pitch', 'pitchRight', 'rafter', 'rafterRight', '
       <app-drawing [spec]="drawing()" ariaLabel="Doorsnede van het dak" />
     </div>
 
+    <details class="more" [open]="hasBuildup()">
+      <summary>Dakopbouw en hoogtes</summary>
+      <p class="hint">
+        Diktes haaks op het dak. De app rekent uit hoe hoog elke laag komt bij de muur, aan het einde van de overstek en in de nok: tot waar de muurplaat,
+        sparren en nokbalk moeten komen, en hoeveel hoogte je onder de overstek overhoudt.
+      </p>
+      <div class="segmented segmented--small" role="radiogroup" aria-label="De dakmaten hierboven zijn">
+        <button type="button" role="radio" [attr.aria-checked]="reference() === 'boven'" (click)="setBuildup('reference', 'boven')">Dakmaten = bovenkant pannen</button>
+        <button type="button" role="radio" [attr.aria-checked]="reference() === 'onder'" (click)="setBuildup('reference', 'onder')">Dakmaten = onderkant spar</button>
+      </div>
+      <div class="fields fields--4 buildup-fields">
+        <app-measure-field label="Hoogte spar / gording" [value]="b('rafter')" (valueChange)="setBuildup('rafter', $event)" hint="Balkhoogte haaks op het dak" />
+        <app-measure-field label="Dakbeschot" [value]="b('deck')" (valueChange)="setBuildup('deck', $event)" hint="Of dakplaat / isolerend dakelement" />
+        <app-measure-field label="Tengel" [value]="b('counter')" (valueChange)="setBuildup('counter', $event)" hint="Dikte" />
+        <app-measure-field label="Panlat" [value]="b('batten')" (valueChange)="setBuildup('batten', $event)" hint="Dikte" />
+        <app-measure-field label="Pan" [value]="b('tile')" (valueChange)="setBuildup('tile', $event)" hint="Hoogte van de pan, gelegd" />
+      </div>
+      @if (buildupMessage(); as m) {
+        <p class="status status--error">{{ m }}</p>
+      }
+      @if (buildup(); as bu) {
+        <p class="hint">{{ heightNote() }}</p>
+        <app-results [rows]="buildupRows()" />
+        <div class="table-scroll">
+          <table class="buildup-table">
+            <thead>
+              <tr>
+                <th scope="col">Hoogte van</th>
+                @for (pt of bu.points; track pt.label) {
+                  <th scope="col">{{ pt.label }}</th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (l of bu.lines.slice().reverse(); track l.name; let i = $index) {
+                <tr>
+                  <th scope="row">{{ l.name }}</th>
+                  @for (pt of bu.points; track pt.label) {
+                    <td>{{ fmt(pt.z[bu.lines.length - 1 - i]) }}</td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </details>
+
     <details class="more" [open]="hasTiles()">
       <summary>Dakpannen, panlatten en tengels</summary>
       <p class="hint">
@@ -231,6 +279,62 @@ export class DakEditor {
       default:
         return false;
     }
+  });
+
+  protected b(field: keyof BuildupEntry): string {
+    return (this.item().buildup?.[field] as string | undefined) ?? '';
+  }
+
+  protected readonly reference = computed(() => (this.item().buildup?.reference === 'onder' ? 'onder' : 'boven'));
+
+  protected setBuildup(field: keyof BuildupEntry, value: string): void {
+    this.changed.emit({ ...this.item(), buildup: { ...emptyBuildup(), ...this.item().buildup, [field]: value } as BuildupEntry });
+  }
+
+  protected readonly hasBuildup = computed(() => {
+    const bu = this.item().buildup;
+    return !!bu && (['rafter', 'deck', 'counter', 'batten', 'tile'] as const).some((k) => bu[k]?.trim());
+  });
+
+  protected readonly buildup = computed(() => {
+    const o = this.outcome();
+    return o.status === 'ok' ? o.value.buildup : null;
+  });
+
+  protected readonly buildupMessage = computed(() => {
+    const o = this.outcome();
+    return o.status === 'ok' ? o.value.buildupMessage : null;
+  });
+
+  protected fmt(m: number): string {
+    return formatLength(m);
+  }
+
+  protected readonly heightNote = computed(() => {
+    const r = this.roof();
+    if (!r) return '';
+    const what = this.reference() === 'boven' ? 'de bovenkant van de pannen' : 'de onderkant van de spar';
+    return r.fromFloor
+      ? `Hoogtes vanaf de vloer. De ingevoerde muurhoogtes en nok zijn ${what}.`
+      : `Hoogtes vanaf de ingevoerde dakmaat bij de muur (${what} = 0). Vul de muurhoogtes in voor hoogtes vanaf de vloer.`;
+  });
+
+  protected readonly buildupRows = computed<ResultRow[]>(() => {
+    const bu = this.buildup();
+    if (!bu) return [];
+    const rows: ResultRow[] = [{ label: 'Opbouw haaks op het dak', value: formatMm(bu.total) }];
+    for (const p of bu.plumb) rows.push({ label: `${p.label}: opbouw verticaal gemeten`, value: formatMm(p.thickness) });
+    const under = 0;
+    const top = bu.lines.length - 1;
+    for (const pt of bu.points) {
+      if (pt.label.startsWith('Muur')) rows.push({ label: `${pt.label}: onderkant spar (muurplaat)`, value: formatLength(pt.z[under]), main: true });
+      else if (pt.label.startsWith('Einde overstek')) rows.push({ label: `Onder het ${pt.label.toLowerCase()}`, value: formatLength(pt.z[under]) });
+      else if (pt.label === 'Nok') {
+        rows.push({ label: 'Nok: onderkant sparren (bovenkant nokbalk)', value: formatLength(pt.z[under]), main: true });
+        if (this.reference() === 'onder') rows.push({ label: 'Nok: bovenkant pannen', value: formatLength(pt.z[top]) });
+      }
+    }
+    return rows;
   });
 
   protected t(field: keyof TileEntry): string {
@@ -443,6 +547,14 @@ export class DakEditor {
       );
     }
     segments.push(...overhangs(roof));
+    // The underside and the top of the build-up.
+    const bu = this.buildup();
+    if (bu) {
+      for (const line of [bu.lines[0], bu.lines[bu.lines.length - 1]]) {
+        if (Math.abs(line.offset) < 1e-9) continue;
+        for (let i = 0; i + 1 < line.pts.length; i++) segments.push({ from: line.pts[i], to: line.pts[i + 1], style: 'dashed' });
+      }
+    }
 
     const plateL = { x: 0, y: roof.plateLeft };
     const plateR = { x: roof.span, y: roof.plateRight };
